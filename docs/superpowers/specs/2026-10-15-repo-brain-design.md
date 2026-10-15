@@ -507,7 +507,7 @@ alike** — completely flat, because every share is exactly 1.0. The plumbing is
 proven; the *scoring* is not.
 
 Consequences, all binding:
-1. The dominance threshold becomes `--threshold`, default 0.8. It is a tuning
+1. *(Default superseded by §15 R1: 0.5 plus a 3-commit floor.)* The dominance threshold becomes `--threshold`, default 0.8. It is a tuning
    parameter, not a constant, and the README must not present 0.8 as principled
    without evidence.
 2. The demo and README must include a **sensitivity table** — bus-factor-1 counts at
@@ -554,3 +554,156 @@ needs `fastify/fastify`. Clone both, under these constraints:
 Priority: **FalkorDB/FalkorDB first** — it is both the D8 demo repo and the first
 multi-author discrimination test, and D8 requires its co-change density be verified
 before committing to it. `fastify` second, for the backtest.
+
+## 15. Rulings after calibrating on multi-author repos (2026-10-15)
+
+These supersede §5 (risk rule, fix eligibility) and §14 D18.1's default where they
+conflict. Every number here is reportable (ingested with `--repo`, real identity
+resolution; D15). Numbers use a relative 2-year window, so they drift a little with
+wall-clock time; pin `--since` to an absolute date for anything published.
+
+### What the calibration found
+
+- **At 0.8, `risk` meant "exactly one person touched it".** fastify had 0 of 266
+  multi-holder files at ≥ 0.8, and FalkorDB 2 of 238. Log-damped commit counts
+  cap the top share near 0.7–0.8 once a second person touches a file (D19 at
+  scale).
+- **Those files were cold, not concentrated.** 62 of fastify's 78 had a single
+  commit in the window, and 57 were tests.
+- **The recency clause was inert at 0.8.** It excluded 0 additional files on
+  fastify at 2-, 5- and 10-year windows alike, and 2 on FalkorDB.
+- **The co-change eligibility floor made `fix` nearly empty.** Only 5 of 78
+  at-risk fastify files had any alive co-change partner (FalkorDB: 4 of 318).
+  This is structural: a file touched once by one person cannot reach the
+  weight ≥ 3 co-change threshold.
+
+### R1 — threshold 0.5, activity floor of 3 commits, 2-year window kept
+
+A file is bus-factor-1 when one person holds **more than 0.5** of its normalised
+`doa` and it has **at least 3 authorship commits** in the window.
+
+- **0.5 is a definition, not a tuned value.** At any threshold ≥ 0.5 at most one
+  person can exceed it, so the rule reads "one person holds a strict majority".
+  The `size(dominant) = 1` guard stays for thresholds below 0.5.
+- **CLI:** `--threshold` (default 0.5) and `--min-commits` (default 3). Both are
+  printed in the output header.
+
+Sensitivity on fastify, after R5. Each cell is at-risk files, multi-holder files
+in parentheses:
+
+| min commits | 0.5 | 0.6 | 0.7 | 0.8 |
+|---|---|---|---|---|
+| 1  | 190 (98) | 112 (20) | 100 (8) | 92 (0) |
+| 3  | 32 (27)  | 17 (12)  | 5 (0)   | 5 (0)  |
+| 5  | 11 (8)   | 5 (2)    | 3 (0)   | 3 (0)  |
+| 10 | 1 (1)    | 1 (1)    | 0       | 0      |
+
+A longer window helped less than the floor. At 5 years and 0.6, 42 of 82 flagged
+files (51%) had several contributors, against 27 of 32 (84%) at 2 years with
+floor 3 and 0.5.
+
+### R2 — segment by file kind; do not hide tests
+
+`risk` rows carry `kind`: source, test, ci, docs or types. `fileKind()` in
+`paths.ts` checks them in the order test > ci (any path starting with ".") >
+docs > types > source. Output leads with at-risk / active files per kind, and
+`--kind` filters.
+
+- **fastify at the defaults:** source 1/28, test 13/84, ci 11/17 (fdawgs holds 10
+  of the 11), docs 7/37, types 0/10.
+- **Tests stay in.** In `impact`, a test moving with its source is mechanical
+  coupling (D16). In `risk`, a test only one person understands is genuine risk.
+
+### R3 — fix eligibility uses a module floor; co-change only ranks
+
+This replaces §5's co-change rule. Reviewer `r` is eligible for at-risk file `f`
+when **both** hold:
+
+- `r ≠ soleHolder(f)`;
+- `r` has `doa > θ` on some *other* alive file `g` with `g.module = f.module`,
+  `t.commits > 0`, and `g` not excluded by the D14 list.
+
+`doa` is already normalised per file, so `t.doa` is the share. Co-change evidence
+may raise a reviewer's rank within the eligible set, but it never gates
+eligibility.
+
+**θ default: 0.2, provisional.** No ruling set it. §5 says θ is tuned on the
+backtest, so expose it as `--theta`. Coverage barely moves with θ. At-risk files
+coverable (distinct eligible reviewers in parentheses):
+
+| repo | θ = 0.2 |
+|---|---|
+| fastify | 32/32 (67) |
+| undici | 82/82 (110) |
+| vite | 179/189 (122) |
+| pnpm | 1572/1593 (294) |
+| FalkorDB | 84/86 (13) |
+
+**Query shape.** Fetch experts **once per module**, then decide per file in TS:
+
+```cypher
+MATCH (r:Person)-[t:TOUCHED]->(g:File)
+WHERE g.alive AND t.commits > 0 AND t.doa > $theta
+RETURN g.module AS module, collect({login: r.login, via: g.path}) AS experts
+```
+
+In TS, drop experts where `via = f.path`, where `login = soleHolder`, or where
+`via` is a D14 path. Two shapes fail:
+
+- one row per (file, reviewer) truncates silently on pnpm (landmine 9);
+- `UNWIND $files … WHERE g.module = f.module` **timed out** on pnpm, even with
+  the `File.module` index.
+
+The per-module shape runs in 20–263 ms on every repo above.
+
+### R4 — recency is an output column, not a filter
+
+The 180-day "no one else recently" clause is removed. It was inert at the default,
+and recency is already inside `doa`. `RiskRow.daysSinceOther` reports days since
+anyone other than the sole holder last touched the file, or `null` if no one ever
+did.
+
+### R5 — bulk commits are not authorship
+
+A commit touching more than 50 files (counted before exclusion) is structural.
+
+- It still writes TOUCHED rows (`t.bulkCommits`) and still resolves renames.
+- It sets no `isCreator` and adds nothing to `doa`, not even the recency term.
+- A person whose only touches on a file are bulk has `t.commits = 0` and
+  `doa = 0`. `risk` and fix eligibility filter on `t.commits > 0`.
+- A file touched only by bulk commits is never reported.
+
+On FalkorDB, the August 2026 Rust-engine import (commit 1665fbd98) had made its
+author the sole holder of 274 files under the old 0.8 rule. After R5 that is 69
+under the same rule, and 19 at the R1 defaults.
+
+### R6 — `diff.renameLimit`: documented, not fixed
+
+Huge commits skip exhaustive rename detection, so a rename there can appear as
+delete plus add. After R5 this affects only alive-tracking, not authorship. It is
+listed in the README as a known limitation.
+
+### D8 update — demo repos
+
+- **fastify/fastify** is the demo and backtest repo: healthy source, CI bus factor.
+- **vitejs/vite** is the source-concentrated counterpart for the README side by
+  side: 380 people, source 94/239 at risk, sapphi-red holds 77.
+- **FalkorDB/FalkorDB is dropped.** Its HEAD is a 2.5-month-old import, and only 49
+  of 556 alive files have any co-change partner.
+- **Also vetted:**
+  - nodejs/undici: source 21/88, a mild case.
+  - pnpm/pnpm: source 1146/1912, zkochan holds 970. It is a known
+    single-maintainer project, and 1593 rows is too long to demo.
+
+### Landmine 9 — reads are silently truncated at 10,000 rows
+
+FalkorDB's `RESULTSET_SIZE` defaults to 10000, verified with
+`GRAPH.CONFIG GET` and with `UNWIND range(1, 12345) AS x RETURN x`, which returns
+10000 rows with no error. A per-touch read on pnpm (21,451 alive TOUCHED rows)
+silently lost data.
+
+- Shape reads to return one row per file or module, never per edge.
+- Wrap results in `underCap()` (`src/db/client.ts`), which throws at the cap.
+- Do not raise the server setting: the container is shared, and a raised cap
+  hides the problem.
+
