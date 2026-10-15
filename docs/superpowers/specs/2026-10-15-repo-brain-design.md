@@ -751,6 +751,15 @@ gain substantially from N = 3 to N = 5, and on fastify N = 5 and "all" give the 
 result. Even so, any projected number we publish must state N. N is tuned on the
 backtest alongside θ.
 
+**`--ceiling` is why N does not rest on trust.** It solves a second time with the
+shortlist lifted and prints both numbers, for example "106 projected; 44 with no
+shortlist; top 5 costs 62" on vite. That shows the cost of N wherever the number is
+used, so a reader can judge the choice without relying on either implementer's
+reasoning. The eligibility read happens once and only the solve repeats: 100 ms on
+fastify and 203 ms on vite. Published projections are quoted with their ceiling.
+`FixResult.unserved` names the files left over; on fastify that is
+`.github/workflows/lock-threads.yml`.
+
 ### F2 — the bottleneck is read from the unserved files, not from the cut
 
 The first version classified the bottleneck from what was in the min cut. That gets
