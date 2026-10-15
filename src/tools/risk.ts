@@ -17,6 +17,7 @@
 // comprehension over the collected holders.
 
 import type { Graph } from "falkordb";
+import { underCap } from "../db/client.ts";
 import { FILE_KINDS, fileKind, type FileKind, type PathPredicate } from "../ingest/paths.ts";
 
 export const DEFAULT_THRESHOLD = 0.5;
@@ -146,12 +147,12 @@ function params(opts: RiskOptions) {
 
 export async function risk(graph: Graph, opts: RiskOptions): Promise<RiskRow[]> {
   const res = await graph.roQuery<RawRiskRow>(RISK_CYPHER, { params: params(opts) });
-  return presentRisk(res.data ?? [], { exclude: opts.exclude, asOf: opts.asOf ?? new Date(), kinds: opts.kinds });
+  return presentRisk(underCap(res.data, "risk"), { exclude: opts.exclude, asOf: opts.asOf ?? new Date(), kinds: opts.kinds });
 }
 
 /** Paths of every file passing the activity floor (the per-segment denominator). */
 export async function activeFiles(graph: Graph, opts: RiskOptions): Promise<string[]> {
   const { module, minCommits } = params(opts);
   const res = await graph.roQuery<{ path: string }>(ACTIVE_CYPHER, { params: { module, minCommits } });
-  return (res.data ?? []).map((r) => r.path);
+  return underCap(res.data, "risk active files").map((r) => r.path);
 }

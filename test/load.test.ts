@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Graph } from "falkordb";
-import { graphName, writeBatched } from "../src/db/client.ts";
+import { RESULTSET_SIZE, graphName, underCap, writeBatched } from "../src/db/client.ts";
 import { buildRepoModel, type Commit } from "../src/ingest/gitlog.ts";
 import { buildLoadPlan, isMissingGraph, loadRepo } from "../src/ingest/load.ts";
 import { DDL, isAlreadyIndexed } from "../src/schema/ddl.ts";
@@ -148,4 +148,10 @@ test("fresh load: a missing graph is fine, any other delete error surfaces", asy
   await assert.rejects(loadRepo(asGraph(down), [], { fresh: true }), /ECONNREFUSED/);
   assert.equal(down.queries.length, 0, "nothing written after a failed delete");
   assert.equal(isMissingGraph(new Error("ECONNREFUSED")), false);
+});
+
+test("underCap: a result at FalkorDB's RESULTSET_SIZE is treated as truncated", () => {
+  assert.deepEqual(underCap(undefined, "q"), []);
+  assert.equal(underCap(new Array(RESULTSET_SIZE - 1).fill(0), "q").length, RESULTSET_SIZE - 1);
+  assert.throws(() => underCap(new Array(RESULTSET_SIZE).fill(0), "risk"), /risk: 10000 rows hit .*RESULTSET_SIZE/);
 });
