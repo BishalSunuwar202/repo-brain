@@ -225,10 +225,12 @@ program
   .option("--kind <kind>", `only this file kind, repeatable: ${FILE_KINDS.join(", ")}`, collect, [])
   .option("--no-exclude <glob>", "keep a pattern from the exclusion list (repeatable)", collect, [])
   .option("--as-of <iso>", "reference time for days-since-other (default: now)")
+  .option("--ceiling", "also solve with no shortlist, to show what --candidates costs (a second solve)")
   .option("--json", "print the full result as JSON")
   .action(
     async (opts: {
       module?: string;
+      ceiling?: boolean;
       budget: string;
       theta: string;
       candidates: string;
@@ -250,6 +252,7 @@ program
           kinds: checkKinds(opts.kind),
           asOf: opts.asOf ? new Date(opts.asOf) : undefined,
           exclude: makeExcluder(excludePatterns(opts.exclude)),
+          ceiling: opts.ceiling,
         };
         const result = await fix(graph, db, fixOpts);
         if (opts.json) return console.log(JSON.stringify({ repo, ...fixOpts, exclude: undefined, ...result }, null, 2));
@@ -262,6 +265,9 @@ program
         console.log(`\n  at risk now          ${String(result.atRiskBefore).padStart(5)}  (one person holds >${fixOpts.threshold} of doa, >=${fixOpts.minCommits} authorship commits)`);
         console.log(`  have a reviewer      ${String(result.coverable).padStart(5)}`);
         console.log(`  projected at risk    ${String(result.atRiskAfter).padStart(5)}  IF every review below happens — a projection, not a measurement`);
+        if (result.ceiling !== null) {
+          console.log(`    with no shortlist  ${String(result.ceiling).padStart(5)}  (every eligible reviewer allowed; top ${fixOpts.candidates} costs ${result.atRiskAfter - result.ceiling})`);
+        }
         // Exact split of what is left: a file with no eligible reviewer can never be
         // served, so every other unserved file is waiting on someone's budget.
         const noReviewer = result.atRiskBefore - result.coverable;
@@ -271,6 +277,10 @@ program
         console.log(`  bottleneck           ${result.bottleneck}`);
         if (atBudget) console.log(`    ${String(atBudget).padStart(5)} left because reviewers are at budget (--budget): ${shown}`);
         if (noReviewer) console.log(`    ${String(noReviewer).padStart(5)} left because nobody clears the expertise floor (--theta)`);
+        if (result.unserved.length && result.unserved.length <= 10) {
+          console.log(`  still at risk`);
+          for (const f of result.unserved) console.log(`    ${f}`);
+        } else if (result.unserved.length) console.log(`  still at risk        ${result.unserved.length} files (--json lists them)`);
         if (!reviews) return;
         console.log(`\n${reviews} review${reviews === 1 ? "" : "s"} for ${result.assignments.length} reviewer${result.assignments.length === 1 ? "" : "s"} (the minimum that achieves the projection):`);
         for (const a of result.assignments) {
