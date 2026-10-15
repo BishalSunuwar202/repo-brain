@@ -755,8 +755,11 @@ backtest alongside θ.
 shortlist lifted and prints both numbers, for example "106 projected; 44 with no
 shortlist; top 5 costs 62" on vite. That shows the cost of N wherever the number is
 used, so a reader can judge the choice without relying on either implementer's
-reasoning. The eligibility read happens once and only the solve repeats: 100 ms on
-fastify and 203 ms on vite. Published projections are quoted with their ceiling.
+reasoning. The eligibility read happens once and only the solve repeats, which is
+nearly free on small repos but not on big ones. End-to-end, without and with
+`--ceiling`: fastify 77 → 100 ms, FalkorDB 56 → 98 ms, vite 125 → 203 ms, pnpm
+3007 → 5339 ms. That cost is why it is opt-in. Published projections are quoted with
+their ceiling.
 `FixResult.unserved` names the files left over; on fastify that is
 `.github/workflows/lock-threads.yml`.
 
