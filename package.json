@@ -1,0 +1,25 @@
+{
+  "name": "repo-brain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Git history -> FalkorDB expertise graph -> minimal review assignments that de-risk knowledge concentration.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "brain": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "test:live": "REPO_BRAIN_LIVE=1 node --import tsx --test test/live.test.ts"
+  },
+  "dependencies": {
+    "commander": "15.0.0",
+    "falkordb": "6.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}
