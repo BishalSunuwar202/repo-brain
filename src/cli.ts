@@ -7,9 +7,9 @@ import { connect, graphName, openRepoGraph } from "./db/client.ts";
 import { RepoModelBuilder, headFiles, streamGitLog, type RepoModel } from "./ingest/gitlog.ts";
 import { fetchIdentityMap, makeResolver, sinceToDate, type Resolver } from "./ingest/identity.ts";
 import { buildLoadPlan, loadRepo } from "./ingest/load.ts";
-import { excludePatterns, makeExcluder } from "./ingest/paths.ts";
+import { FILE_KINDS, excludePatterns, makeExcluder } from "./ingest/paths.ts";
 import { impact } from "./tools/impact.ts";
-import { DEFAULT_THRESHOLD, risk } from "./tools/risk.ts";
+import { DEFAULT_MIN_COMMITS, DEFAULT_THRESHOLD, activeFiles, checkKinds, risk, segmentRisk } from "./tools/risk.ts";
 import type { Graph } from "falkordb";
 
 const program = new Command()
@@ -160,29 +160,52 @@ program
   });
 program
   .command("risk")
-  .description("bus-factor-1 files (lockfiles/generated paths never reported, spec §12 D14)")
+  .description("bus-factor-1 files, by file kind (lockfiles/generated paths never reported, spec §12 D14)")
   .option("--module <module>")
-  .option("--threshold <share>", "dominance share one person must exceed (tuning parameter, spec §14 D18)", String(DEFAULT_THRESHOLD))
+  .option("--threshold <share>", "one person must hold MORE than this share of doa (spec §14 R1)", String(DEFAULT_THRESHOLD))
+  .option("--min-commits <n>", "activity floor: authorship commits on the file (spec §14 R1)", String(DEFAULT_MIN_COMMITS))
+  .option("--kind <kind>", `only this file kind, repeatable: ${FILE_KINDS.join(", ")}`, collect, [])
   .option("--no-exclude <glob>", "keep a pattern from the exclusion list (repeatable)", collect, [])
-  .option("--as-of <iso>", "reference time for the 180-day window (default: now)")
+  .option("--as-of <iso>", "reference time for days-since-other (default: now)")
   .option("--limit <n>", "rows to show", "25")
-  .option("--json", "print all rows as JSON")
-  .action(async (opts: { module?: string; threshold: string; exclude: string[]; asOf?: string; limit: string; json?: boolean }) => {
-    await withGraph(async (graph) => {
-      const threshold = Number(opts.threshold);
-      const rows = await risk(graph, {
-        module: opts.module,
-        threshold,
-        asOf: opts.asOf ? new Date(opts.asOf) : undefined,
-        exclude: makeExcluder(excludePatterns(opts.exclude)),
+  .option("--json", "print segments and all rows as JSON")
+  .action(
+    async (opts: { module?: string; threshold: string; minCommits: string; kind: string[]; exclude: string[]; asOf?: string; limit: string; json?: boolean }) => {
+      await withGraph(async (graph, repo) => {
+        const exclude = makeExcluder(excludePatterns(opts.exclude));
+        const riskOpts = {
+          module: opts.module,
+          threshold: Number(opts.threshold),
+          minCommits: Number(opts.minCommits),
+          kinds: checkKinds(opts.kind),
+          asOf: opts.asOf ? new Date(opts.asOf) : undefined,
+          exclude,
+        };
+        const rows = await risk(graph, riskOpts);
+        const segments = segmentRisk(rows, await activeFiles(graph, riskOpts), exclude).filter(
+          (s) => !riskOpts.kinds.length || riskOpts.kinds.includes(s.kind),
+        );
+        if (opts.json) return console.log(JSON.stringify({ repo, ...riskOpts, exclude: undefined, segments, rows }, null, 2));
+
+        const scope = [opts.module && `module ${opts.module}`, riskOpts.kinds.length && `kind ${riskOpts.kinds.join(",")}`].filter(Boolean).join(", ");
+        console.log(
+          `${graphName(repo)}  bus-factor-1 = one person holds >${riskOpts.threshold} of doa, on files with >=${riskOpts.minCommits} authorship commits${scope ? `  [${scope}]` : ""}`,
+        );
+        console.log(`\nby kind (at-risk / active files):`);
+        for (const s of segments) {
+          const top = s.topHolder ? `  ${s.topHolder.login} holds ${s.topHolder.files}` : "";
+          console.log(`  ${s.kind.padEnd(7)} ${String(s.atRisk).padStart(4)} / ${String(s.active).padEnd(5)}${top}`);
+        }
+        console.log(`\n${rows.length} file${rows.length === 1 ? "" : "s"}:   share commits people  others-last  holder               path`);
+        const limit = Number(opts.limit);
+        for (const r of rows.slice(0, limit)) {
+          const other = r.daysSinceOther === null ? "never" : `${r.daysSinceOther}d ago`;
+          console.log(`  ${r.kind.padEnd(7)} ${pct(r.share)} ${String(r.commits).padStart(7)} ${String(r.holders).padStart(6)}  ${other.padStart(11)}  ${r.soleHolder.padEnd(20)} ${r.path}`);
+        }
+        if (rows.length > limit) console.log(`  … ${rows.length - limit} more (--limit, --json)`);
       });
-      if (opts.json) return console.log(JSON.stringify(rows, null, 2));
-      const scope = opts.module ? ` in ${opts.module}` : "";
-      console.log(`${rows.length} bus-factor-1 file${rows.length === 1 ? "" : "s"}${scope}: one person holds >${pct(threshold).trim()} and no one else touched it in 180 days`);
-      for (const r of rows.slice(0, Number(opts.limit))) console.log(`  ${pct(r.share)}  ${r.soleHolder.padEnd(20)}  ${r.path}`);
-      if (rows.length > Number(opts.limit)) console.log(`  … ${rows.length - Number(opts.limit)} more (--limit, --json)`);
-    });
-  });
+    },
+  );
 program.command("review").description("suggest reviewers for a PR").argument("<prNumber>").action(notYet("review"));
 program
   .command("fix")
