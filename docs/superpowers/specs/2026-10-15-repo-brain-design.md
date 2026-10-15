@@ -707,3 +707,102 @@ silently lost data.
 - Do not raise the server setting: the container is shared, and a raised cap
   hides the problem.
 
+
+---
+
+## 16. `fix` as built (2026-10-15)
+
+`fix` solves the §5 network in a throwaway `flow:<uuid>` graph and drops it
+afterwards, even when the solve throws. No `flow:` graph was left behind after
+runs on all five repos. Eligibility is §15 R3. The two implementations were
+written independently and give the same coverage on every repo.
+
+### F1 — the solver gets a shortlist of each file's strongest reviewers
+
+`algo.maxFlow` maximises the *number* of files covered and does not care which
+reviewers it uses. With every eligible pair in the network, it picked whoever
+sorted first: on fastify, acoluzzi and agustin18; on pnpm, 0xnoramiya and 3w36zj6.
+The count was optimal, but the advice was noise.
+
+Each file now offers the solver only its `--candidates` strongest eligible
+reviewers. Reviewers are ranked by their best `doa` in the module, and ties break
+on login, so runs are reproducible. Under the shortlist, fastify prescribes
+climba03003, eomm, fdawgs and mcollina, among others.
+
+**Shortlisting costs coverage.** Projected files still at risk, at the risk
+defaults with `--budget 2` (measured twice, by independent runs):
+
+| repo | N=1 | 2 | 3 | 5 | 10 | all |
+|---|---|---|---|---|---|---|
+| fastify | 20 | 11 | 6 | **1** | 1 | 1 |
+| FalkorDB | 78 | 74 | 72 | **63** | 60 | 60 |
+| undici | 49 | 30 | 24 | **13** | 4 | 2 |
+| pnpm | 1533 | 1498 | 1471 | **1411** | 1327 | 1029 |
+| vite | 152 | 132 | 121 | **106** | 90 | 44 |
+
+With no shortlist the number is better, because barely qualified reviewers soak up
+the overflow once the strong ones reach their budget. That is a better number from
+worse advice.
+
+**Default N = 5, provisional, same status as θ.** It is the smallest N at which
+fastify reaches its floor, and that is exactly how a value picked to flatter the
+demo would look. Two things argue against that reading: undici, vite and pnpm also
+gain substantially from N = 3 to N = 5, and on fastify N = 5 and "all" give the same
+result. Even so, any projected number we publish must state N. N is tuned on the
+backtest alongside θ.
+
+### F2 — the bottleneck is read from the unserved files, not from the cut
+
+The first version classified the bottleneck from what was in the min cut. That gets
+it backwards:
+
+- a saturated SOURCE→file edge that crosses the cut means the file **was** served;
+- a file nobody can review keeps spare capacity on its SOURCE edge, so it stays on
+  the SOURCE side and never crosses the cut at all.
+
+On fastify, the first version reported "eligibility" for
+`.github/workflows/lock-threads.yml`, whose four candidates were all at budget. Its
+test passed for the wrong reason.
+
+The classification now uses the unserved files directly:
+
+- a file with no candidate edges is an **eligibility** shortfall;
+- a file whose candidates are all saturated is a **bandwidth** shortfall;
+- the label goes to whichever explains more files, and ties go to eligibility.
+
+The min cut is still load-bearing in two ways. It names `bottleneckReviewers`, the
+people whose budget binds. And its capacity equalling maxFlow proves that no
+smaller set of reviews would cover as much.
+
+The CLI does not depend on the label alone. It prints the exact split: files with no
+eligible reviewer (`atRiskBefore − coverable`) can never be served, so every other
+unserved file is waiting on someone's budget. At the defaults:
+
+| repo | at risk | have a reviewer | projected after | at budget | nobody eligible |
+|---|---|---|---|---|---|
+| fastify | 32 | 32 | 1 | 1 | 0 |
+| undici | 82 | 82 | 13 | 13 | 0 |
+| vite | 189 | 179 | 106 | 96 | 10 |
+| FalkorDB | 86 | 84 | 63 | 61 | 2 |
+| pnpm | 1593 | 1572 | 1411 | 1390 | 21 |
+
+### F3 — "projected after" is a counterfactual
+
+`atRiskAfter = atRiskBefore − maxFlow`. It is not measured again after the reviews.
+The graph cannot know whether the reviews happened, so the CLI, the README and the
+video must call it a projection.
+
+### Verified live for §13
+
+- `startNode(e)` and `endNode(e)` work on the edges `algo.maxFlow` yields, so the
+  flows come back keyed by our own node names, with no internal-ID mapping.
+- `algo.maxFlow` returns **only positive-flow edges**. When nothing can flow,
+  `UNWIND range(0, size(edges) - 1)` yields zero rows instead of failing, so
+  `maxFlow` is read from row 0 and defaults to 0. `mergeFlows` puts the zero-flow
+  edges back, because the min cut needs the whole network.
+- `mergeFlows` stops with an error if a flow lands on an edge we never built, or if
+  maxFlow differs from the flow leaving SOURCE.
+- Every read goes through `underCap`. The largest, pnpm's flow edges, is about 3.4k
+  rows.
+- End-to-end CLI wall-clock times: fastify, undici, vite and FalkorDB 0.6–0.9 s;
+  pnpm 2.4 s.
