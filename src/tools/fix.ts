@@ -507,8 +507,11 @@ export interface FixOptions extends RiskOptions {
   /** Strongest candidates per file that reach the network. Default DEFAULT_CANDIDATES. */
   candidates?: number;
   /**
-   * Also solve with the shortlist lifted and report it as `ceiling`. Costs a second
-   * solve (~2.4s on pnpm, negligible elsewhere), so it is opt-in.
+   * Also solve with the shortlist lifted and report it as `ceiling`. Opt-in because
+   * it repeats the solve, and on a big repo that is not cheap. Measured end-to-end
+   * 2026-10-15: fastify 77 -> 100ms, FalkorDB 56 -> 98ms, vite 125 -> 203ms,
+   * pnpm 3007 -> 5339ms. The eligibility read happens once, so only the max-flow
+   * solve repeats — but on pnpm that alone is the +2.3s.
    */
   ceiling?: boolean;
 }
