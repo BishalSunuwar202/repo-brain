@@ -125,6 +125,10 @@ async function withGraph<T>(fn: (graph: Graph, repo: string) => Promise<T>): Pro
   if (!repo) throw new Error("this command needs --repo owner/name to pick the graph");
   const db = await connect();
   try {
+    // Querying a missing graph surfaces as a raw "Invalid graph operation on empty key".
+    if (!(await db.list()).includes(graphName(repo))) {
+      throw new Error(`no graph ${graphName(repo)} — run: npm run brain -- --repo ${repo} ingest <repoPath>`);
+    }
     return await fn(await openRepoGraph(db, repo), repo);
   } finally {
     await db.close();
@@ -217,4 +221,10 @@ program
   .action(notYet("fix"));
 program.command("backtest").description("hit-rate@1/@3 of review() on held-out PRs vs baselines").action(notYet("backtest"));
 
-await program.parseAsync();
+try {
+  await program.parseAsync();
+} catch (err) {
+  // A message, not a stack trace; DEBUG=1 for the stack.
+  console.error(`error: ${err instanceof Error ? (process.env.DEBUG ? err.stack : err.message) : String(err)}`);
+  process.exitCode = 1;
+}
