@@ -388,6 +388,8 @@ test("presentFix: full coverage within budget de-risks every file", () => {
     assignments: [{ reviewer: "alice", files: ["src/a.ts", "src/b.ts"] }],
     bottleneck: "none",
     bottleneckReviewers: [],
+    unserved: [],
+    ceiling: null,
   });
 });
 
@@ -448,6 +450,8 @@ test("presentFix: nothing at risk is a clean empty answer, not a crash", () => {
     assignments: [],
     bottleneck: "none",
     bottleneckReviewers: [],
+    unserved: [],
+    ceiling: null,
   });
 });
 
@@ -530,4 +534,31 @@ test("eligibleByFile: ties break on login so the prescription is reproducible", 
 test("checkCandidates: the shortlist is an integer >= 1", () => {
   assert.equal(checkCandidates(5), 5);
   for (const bad of [0, -1, 2.5, Number.NaN]) assert.throws(() => checkCandidates(bad), /--candidates must be an integer >= 1/, String(bad));
+});
+
+// The demo should be able to NAME the file it could not place, not just count it.
+// On fastify that is a single path, and "we could not cover
+// .github/workflows/lock-threads.yml" lands far harder than "1 file remains".
+test("presentFix: unserved names the files the flow could not place, sorted", () => {
+  const built = buildNetwork({
+    atRisk: ["src/z.ts", "src/a.ts", "src/covered.ts"],
+    eligible: new Map([["src/covered.ts", ["alice"]]]),
+    budget: 2,
+  });
+  const rows = [
+    { from: SOURCE, to: fileNode("src/covered.ts"), flow: 1 },
+    { from: fileNode("src/covered.ts"), to: reviewerNode("alice"), flow: 1 },
+    { from: reviewerNode("alice"), to: SINK, flow: 1 },
+  ];
+
+  const result = presentFix(built, { rows, maxFlow: 1 });
+  assert.deepEqual(result.unserved, ["src/a.ts", "src/z.ts"]);
+  assert.equal(result.unserved.length, result.atRiskAfter, "every unplaced file is still at risk");
+});
+
+// ceiling is the shortlist's cost, and presentFix cannot know it — it only ever sees
+// one network. fix() fills it in from a second, unrestricted solve.
+test("presentFix: ceiling is null, because one solved network cannot know the other", () => {
+  const built = buildNetwork({ atRisk: ["src/a.ts"], eligible: new Map(), budget: 2 });
+  assert.equal(presentFix(built, { rows: [], maxFlow: 0 }).ceiling, null);
 });

@@ -1,4 +1,4 @@
-// fix(module?, budget?): THE CONTRIBUTION (spec §5). STUB.
+// fix(module?, budget?): THE CONTRIBUTION (spec §5, calibrated in §15 R3 and §16).
 //
 // Flow network:
 //   SOURCE --cap=1--> [at-risk File]
@@ -49,6 +49,16 @@ export interface FixResult {
   bottleneck: "bandwidth" | "eligibility" | "none";
   /** Reviewers whose budget the min cut shows to be binding; empty unless bandwidth-bound. */
   bottleneckReviewers: string[];
+  /** The at-risk files no reviewer could be assigned to, sorted. Length is atRiskAfter. */
+  unserved: string[];
+  /**
+   * atRiskAfter with the candidate shortlist lifted — what the projection would be if
+   * every eligible reviewer, however marginal, were allowed in. null unless asked for,
+   * because it costs a second solve. See DEFAULT_CANDIDATES for why the gap exists and
+   * why the restrictive default is still the honest one: any published projection
+   * should state N, and this is how the cost of that N stays visible.
+   */
+  ceiling: number | null;
 }
 
 
@@ -383,6 +393,12 @@ export function presentFix(built: readonly FlowEdge[], solved: { rows: readonly 
     assignments: assignmentsFrom(edges),
     bottleneck: classifyBottleneck(edges),
     bottleneckReviewers: bottleneckReviewers(minCut(edges, SOURCE)),
+    unserved: edges
+      .filter((e) => e.from === SOURCE && e.flow === 0)
+      .map((e) => unprefix(e.to))
+      .sort(),
+    // presentFix sees one network; the comparison needs two. fix() fills it in.
+    ceiling: null,
   };
 }
 
@@ -490,6 +506,11 @@ export interface FixOptions extends RiskOptions {
   theta?: number;
   /** Strongest candidates per file that reach the network. Default DEFAULT_CANDIDATES. */
   candidates?: number;
+  /**
+   * Also solve with the shortlist lifted and report it as `ceiling`. Costs a second
+   * solve (~2.4s on pnpm, negligible elsewhere), so it is opt-in.
+   */
+  ceiling?: boolean;
 }
 
 /**
@@ -504,8 +525,18 @@ export async function fix(graph: Graph, db: FalkorDB, opts: FixOptions): Promise
 
   const atRisk = await risk(graph, opts);
   const res = await graph.roQuery<ModuleExperts>(ELIGIBLE_CYPHER, { params: { theta, module: opts.module ?? null } });
-  const eligible = eligibleByFile(atRisk, underCap(res.data, "fix eligibility"), { exclude: opts.exclude, candidates: opts.candidates });
-  const built = buildNetwork({ atRisk: atRisk.map((r) => r.path), eligible, budget });
+  const experts = underCap(res.data, "fix eligibility");
 
-  return presentFix(built, await solveMaxFlow(db, built));
+  // One eligibility read, solved once per shortlist size asked for.
+  const solve = async (candidates?: number) => {
+    const eligible = eligibleByFile(atRisk, experts, { exclude: opts.exclude, candidates });
+    const built = buildNetwork({ atRisk: atRisk.map((r) => r.path), eligible, budget });
+    return presentFix(built, await solveMaxFlow(db, built));
+  };
+
+  const result = await solve(opts.candidates);
+  if (!opts.ceiling) return result;
+  // MAX_SAFE_INTEGER rather than a flag: checkCandidates wants an integer, and the
+  // slice is simply a no-op at that size.
+  return { ...result, ceiling: (await solve(Number.MAX_SAFE_INTEGER)).atRiskAfter };
 }
