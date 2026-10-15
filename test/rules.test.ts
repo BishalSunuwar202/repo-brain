@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { botReason, isBot } from "../src/ingest/bots.ts";
-import { CO_CHANGE_EXCLUDE, excludePatterns, isCoChangeExcluded, isTestPath, makeExcluder, moduleOf } from "../src/ingest/paths.ts";
+import { CO_CHANGE_EXCLUDE, excludePatterns, fileKind, isCoChangeExcluded, isTestPath, makeExcluder, moduleOf } from "../src/ingest/paths.ts";
 import { fallbackLogin, identityFromHistory, makeResolver, sinceToDate } from "../src/ingest/identity.ts";
 import type { Commit } from "../src/ingest/gitlog.ts";
 
@@ -125,4 +125,22 @@ test("sinceToDate handles git's relative form and ISO dates", () => {
   assert.equal(sinceToDate("6 months ago", now).toISOString(), "2026-04-15T12:00:00.000Z");
   assert.equal(sinceToDate("2025-01-01", now).toISOString(), "2025-01-01T00:00:00.000Z");
   assert.throws(() => sinceToDate("last tuesday", now));
+});
+
+test("R2: fileKind — test > ci (dot-path) > docs > types > source", () => {
+  const cases: Record<string, string> = {
+    "test/types/instance.test-d.ts": "test",
+    "lib/route.test.js": "test",
+    ".github/workflows/ci.yml": "ci",
+    ".gitignore": "ci",
+    ".github/CONTRIBUTING.md": "ci",
+    "docs/Reference/Server.md": "docs",
+    "docs/images/logo.png": "docs",
+    "README.md": "docs",
+    "types/instance.d.ts": "types",
+    "lib/route.js": "source",
+    "fastify.js": "source",
+    "package.json": "source",
+  };
+  for (const [path, kind] of Object.entries(cases)) assert.equal(fileKind(path), kind, path);
 });
