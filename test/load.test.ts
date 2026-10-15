@@ -70,7 +70,7 @@ test("load plan rows: lowercase login, emails array, module, alive, UTC timestam
   assert.deepEqual(plan.File.find((f) => f.path === "src/core/a.ts"), { path: "src/core/a.ts", module: "src/core", alive: true });
   assert.equal(plan.Commit.find((c) => c.sha === "c3")!.ts, "2026-03-01T04:15:00.000Z");
   const touched = plan.TOUCHED.find((t) => t.login === "alice" && t.path === "src/core/a.ts")!;
-  assert.deepEqual(Object.keys(touched).sort(), ["adds", "commits", "dels", "doa", "lastTs", "login", "path"]);
+  assert.deepEqual(Object.keys(touched).sort(), ["adds", "bulkCommits", "commits", "dels", "doa", "lastTs", "login", "path"]);
   assert.equal(touched.commits, 2);
   // pnpm-lock.yaml keeps its TOUCHED row (factual) but is not in CO_CHANGED.
   assert.ok(plan.TOUCHED.some((t) => t.path === "pnpm-lock.yaml"));

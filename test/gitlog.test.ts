@@ -194,6 +194,34 @@ test("co-change: commits touching > 50 files are dropped, but still count for TO
   assert.equal(kept.coChanged.length, (50 * 49) / 2, "exactly 50 files is not bulk");
 });
 
+test("R5: a bulk commit is not authorship — no isCreator, no commit count, no doa", () => {
+  const vendorDrop = Array.from({ length: 51 }, (_, i) => `vendor-drop/f${i}.ts`);
+  const model = buildRepoModel(
+    [
+      commit("c3", "2026-10-01T00:00:00Z", "bob@x", ["src/app.ts"]),
+      // dvir "creates" app.ts inside a 52-file import; bob is the only real author.
+      commit("c2", "2026-08-02T00:00:00Z", "dvir@x", ["src/app.ts", ...vendorDrop], { created: ["src/app.ts", ...vendorDrop] }),
+      commit("c1", "2026-06-01T00:00:00Z", "bob@x", ["src/app.ts"]),
+    ],
+    AS_OF,
+  );
+  const on = (login: string, path: string) => model.touched.find((t) => t.login === login && t.path === path)!;
+
+  const dvir = on("dvir", "src/app.ts");
+  assert.equal(dvir.isCreator, false);
+  assert.equal(dvir.commits, 0);
+  assert.equal(dvir.bulkCommits, 1, "the touch is still recorded as a fact");
+  assert.equal(dvir.doaRaw, 0, "not even the recency term");
+  assert.equal(dvir.doa, 0);
+  assert.equal(on("bob", "src/app.ts").doa, 1);
+  assert.equal(on("bob", "src/app.ts").lastTs, "2026-10-01T00:00:00.000Z");
+
+  // A file only a bulk commit ever touched: every doa is 0, never NaN.
+  const only = on("dvir", "vendor-drop/f0.ts");
+  assert.equal(only.doa, 0);
+  assert.equal(only.lastTs, "2026-08-02T00:00:00.000Z", "falls back to the bulk touch");
+});
+
 test("bots: no Person, no TOUCHED, and no co-change evidence (D5)", () => {
   const bot = (sha: string) => ({ ...commit(sha, "2026-01-01T00:00:00Z", "49699333+dependabot[bot]@users.noreply.github.com", ["src/a.ts", "src/b.ts"]), authorName: "dependabot[bot]" });
   const model = buildRepoModel([bot("1"), bot("2"), bot("3")], AS_OF);
