@@ -1,4 +1,4 @@
-// risk(module?): where is knowledge concentrated (spec §5, revised by §14 R1/R2/R4).
+// risk(module?): where is knowledge concentrated (spec §5, revised by §15 R1/R2/R4).
 //
 // Bus-factor-1 file = one person holds MORE than `threshold` of the file's normalised
 // doa, among files with at least `minCommits` authorship commits in the window.
@@ -78,9 +78,9 @@ export interface Segment {
 export interface RiskOptions {
   module?: string;
   asOf?: Date;
-  /** Dominance share, exclusive: 0 < threshold < 1. Default 0.5 (spec §14 R1). */
+  /** Dominance share, exclusive: 0 < threshold < 1. Default 0.5 (spec §15 R1). */
   threshold?: number;
-  /** Activity floor: minimum authorship commits on the file. Default 3 (spec §14 R1). */
+  /** Activity floor: minimum authorship commits on the file. Default 3 (spec §15 R1). */
   minCommits?: number;
   /** Only these kinds; default all. */
   kinds?: readonly FileKind[];
