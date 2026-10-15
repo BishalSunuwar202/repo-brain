@@ -15,6 +15,9 @@ export const CO_CHANGE_EXCLUDE: readonly string[] = [
   "bun.lockb",
   "go.sum",
   "Cargo.lock",
+  // D20: prisma/migrations/migration_lock.toml slipped past `*.lock`.
+  "migration_lock.toml",
+  "*_lock.toml",
   "*.snap",
   "__snapshots__/**",
   "dist/**",

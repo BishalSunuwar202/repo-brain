@@ -26,11 +26,20 @@ test("isBot: git authors, PR authors and reviewers", () => {
   for (const h of humans) assert.equal(isBot(h), false, JSON.stringify(h));
 });
 
-test("exclusion list = spec §12 D4 + D14 additions (bun.lockb, *.snap)", () => {
+test("exclusion list = spec §12 D4 + D14 additions (bun.lockb, *.snap) + §14 D20 (*_lock.toml)", () => {
   assert.deepEqual([...CO_CHANGE_EXCLUDE].sort(), [
     "*-lock.yaml", "*-lock.json", "*.lock", "yarn.lock", "bun.lockb", "go.sum", "Cargo.lock", "*.snap",
+    "migration_lock.toml", "*_lock.toml",
     "__snapshots__/**", "dist/**", "build/**", "vendor/**", "*.min.*", "*.generated.*",
   ].sort());
+});
+
+test("D20: prisma migration_lock.toml is excluded, ordinary toml is not", () => {
+  assert.equal(isCoChangeExcluded("apps/api/prisma/migrations/migration_lock.toml"), true);
+  assert.equal(isCoChangeExcluded("poetry_lock.toml"), true);
+  assert.equal(isCoChangeExcluded("Cargo.toml"), false);
+  assert.equal(isCoChangeExcluded("pyproject.toml"), false);
+  assert.equal(makeExcluder(excludePatterns(["migration_lock.toml", "*_lock.toml"]))("prisma/migration_lock.toml"), false);
 });
 
 test("D14: bun.lockb and loose .snap files are excluded", () => {
