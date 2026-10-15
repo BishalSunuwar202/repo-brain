@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { presentImpact } from "../src/tools/impact.ts";
-import { presentRisk } from "../src/tools/risk.ts";
+import { checkThreshold, presentRisk } from "../src/tools/risk.ts";
 import { groundTruthReviewers, hitAtK, hitRate } from "../src/eval/backtest.ts";
 import { isCoChangeExcluded } from "../src/ingest/paths.ts";
 
@@ -62,4 +62,9 @@ test("hit-rate@k: any of top-k counts; PRs with no human reviewer are not scored
   assert.equal(hitRate(cases, 1), 1 / 3);
   assert.equal(hitRate(cases, 3), 2 / 3);
   assert.ok(Number.isNaN(hitRate([], 1)));
+});
+
+test("D18: --threshold must be strictly between 0 and 1", () => {
+  assert.equal(checkThreshold(0.8), 0.8);
+  for (const bad of [0, 1, 1.5, -0.1, Number.NaN]) assert.throws(() => checkThreshold(bad), /strictly between 0 and 1/, String(bad));
 });

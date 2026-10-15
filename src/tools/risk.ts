@@ -1,7 +1,8 @@
 // risk(module?): where is knowledge concentrated (spec §5, verified live in §13).
 //
-// Bus-factor-1 = one person holds > 80% of normalised doa AND no one else has
-// touched the file since the cutoff (asOf − 180 days).
+// Bus-factor-1 = one person holds > threshold (default 0.8) of normalised doa AND
+// no one else has touched the file since the cutoff (asOf − 180 days).
+// The threshold is a tuning parameter, not a principled constant (spec §14 D18).
 //
 // FalkorDB has no EXISTS { } subqueries (landmine 8): the "no one else recently"
 // clause collects lastTs in the aggregation and filters with a list comprehension.
@@ -12,11 +13,12 @@ import type { Graph } from "falkordb";
 import type { PathPredicate } from "../ingest/paths.ts";
 
 export const RECENT_DAYS = 180;
+export const DEFAULT_THRESHOLD = 0.8;
 
 export const RISK_CYPHER = `MATCH (p:Person)-[t:TOUCHED]->(f:File)
 WHERE f.alive AND ($module IS NULL OR f.module = $module)
 WITH f, collect({login: p.login, doa: t.doa, lastTs: t.lastTs}) AS holders, sum(t.doa) AS total
-WITH f, holders, total, [h IN holders WHERE h.doa / total > 0.8] AS dominant
+WITH f, holders, total, [h IN holders WHERE h.doa / total > $threshold] AS dominant
 WHERE size(dominant) = 1
 WITH f, holders, total, dominant[0] AS sole
 WITH f, total, sole,
@@ -44,13 +46,21 @@ export function presentRisk(rows: RiskRow[], exclude: PathPredicate): RiskRow[] 
 export interface RiskOptions {
   module?: string;
   asOf?: Date;
+  /** Dominance share, exclusive: 0 < threshold < 1. Default 0.8 (spec §14 D18). */
+  threshold?: number;
   /** Required on purpose: every caller, including fix's before/after count, must filter. */
   exclude: PathPredicate;
 }
 
+export function checkThreshold(threshold: number): number {
+  if (!(threshold > 0 && threshold < 1)) throw new Error(`--threshold must be strictly between 0 and 1, got ${threshold}`);
+  return threshold;
+}
+
 export async function risk(graph: Graph, opts: RiskOptions): Promise<RiskRow[]> {
+  const threshold = checkThreshold(opts.threshold ?? DEFAULT_THRESHOLD);
   const res = await graph.roQuery<RiskRow>(RISK_CYPHER, {
-    params: { module: opts.module ?? null, cutoff: riskCutoff(opts.asOf ?? new Date()) },
+    params: { module: opts.module ?? null, cutoff: riskCutoff(opts.asOf ?? new Date()), threshold },
   });
   return presentRisk(res.data ?? [], opts.exclude);
 }

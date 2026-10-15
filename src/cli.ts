@@ -9,7 +9,7 @@ import { fetchIdentityMap, makeResolver, sinceToDate, type Resolver } from "./in
 import { buildLoadPlan, loadRepo } from "./ingest/load.ts";
 import { excludePatterns, makeExcluder } from "./ingest/paths.ts";
 import { impact } from "./tools/impact.ts";
-import { risk } from "./tools/risk.ts";
+import { DEFAULT_THRESHOLD, risk } from "./tools/risk.ts";
 import type { Graph } from "falkordb";
 
 const program = new Command()
@@ -162,20 +162,23 @@ program
   .command("risk")
   .description("bus-factor-1 files (lockfiles/generated paths never reported, spec §12 D14)")
   .option("--module <module>")
+  .option("--threshold <share>", "dominance share one person must exceed (tuning parameter, spec §14 D18)", String(DEFAULT_THRESHOLD))
   .option("--no-exclude <glob>", "keep a pattern from the exclusion list (repeatable)", collect, [])
   .option("--as-of <iso>", "reference time for the 180-day window (default: now)")
   .option("--limit <n>", "rows to show", "25")
   .option("--json", "print all rows as JSON")
-  .action(async (opts: { module?: string; exclude: string[]; asOf?: string; limit: string; json?: boolean }) => {
+  .action(async (opts: { module?: string; threshold: string; exclude: string[]; asOf?: string; limit: string; json?: boolean }) => {
     await withGraph(async (graph) => {
+      const threshold = Number(opts.threshold);
       const rows = await risk(graph, {
         module: opts.module,
+        threshold,
         asOf: opts.asOf ? new Date(opts.asOf) : undefined,
         exclude: makeExcluder(excludePatterns(opts.exclude)),
       });
       if (opts.json) return console.log(JSON.stringify(rows, null, 2));
       const scope = opts.module ? ` in ${opts.module}` : "";
-      console.log(`${rows.length} bus-factor-1 file${rows.length === 1 ? "" : "s"}${scope}: one person holds >80% and no one else touched it in 180 days`);
+      console.log(`${rows.length} bus-factor-1 file${rows.length === 1 ? "" : "s"}${scope}: one person holds >${pct(threshold).trim()} and no one else touched it in 180 days`);
       for (const r of rows.slice(0, Number(opts.limit))) console.log(`  ${pct(r.share)}  ${r.soleHolder.padEnd(20)}  ${r.path}`);
       if (rows.length > Number(opts.limit)) console.log(`  … ${rows.length - Number(opts.limit)} more (--limit, --json)`);
     });
@@ -186,6 +189,7 @@ program
   .description("minimal review assignments that de-risk knowledge concentration")
   .option("--module <module>")
   .option("--budget <n>", "k_r: extra reviews each reviewer can take (spec §12 D7)", "2")
+  .option("--threshold <share>", "risk dominance share (spec §14 D18)", String(DEFAULT_THRESHOLD))
   .option("--no-exclude <glob>", "keep a pattern from the exclusion list (repeatable)", collect, [])
   .action(notYet("fix"));
 program.command("backtest").description("hit-rate@1/@3 of review() on held-out PRs vs baselines").action(notYet("backtest"));

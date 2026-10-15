@@ -80,6 +80,13 @@ test("live: load -> risk -> impact on a throwaway graph", { skip: !LIVE && "set 
     assert.equal(solo.module, ".");
     assert.ok(solo.share > 0.999);
 
+    // D18: --threshold reaches the query. split.ts is a near-tie, bob just ahead on recency.
+    const bobSplit = model.touched.find((t) => t.login === "bob" && t.path === "split.ts")!;
+    assert.ok(bobSplit.doa > 0.5 && bobSplit.doa < 0.6, `bob must hold just over half of split.ts, got ${bobSplit.doa}`);
+    const loose = await risk(graph, { threshold: 0.5, asOf: AS_OF, exclude: isCoChangeExcluded });
+    assert.equal(loose.find((r) => r.path === "split.ts")?.soleHolder, "bob");
+    assert.ok(!shown.some((r) => r.path === "split.ts"), "default 0.8 still excludes it");
+
     const scoped = await risk(graph, { module: "src/core", asOf: AS_OF, exclude: isCoChangeExcluded });
     assert.deepEqual(scoped.map((r) => r.soleHolder), ["carol", "carol", "carol"]);
 
