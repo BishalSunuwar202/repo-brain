@@ -4,12 +4,11 @@
 OPEN BEFORE SUBMITTING (delete this block once settled):
 - Tracks: the rules page (wemakedevs.org/hackathons/falkordb/rules, read 2026-10-17)
   names "Agents That Act on Connected Data", "Agent Memory and Coordination" and
-  "Company Brain", and allows entering any or all. Spec §10's names (Investigation &
-  Risk, Agentic AI, GraphRAG SDK) are not on the page. The choice below is a
-  recommendation for the owner to confirm.
-- AI disclosure wording (rule 11) is a draft for the owner to correct.
-- Rule 10 wants the graph data model and the Cypher in the README. They are here;
-  the README does not have them yet.
+  "Company Brain", and allows entering any or all (spec §10, corrected). The choice
+  below is a recommendation for the owner to confirm.
+- The AI disclosure (rule 11) is the owner's to write. It is a statement about the
+  owner's own work, and rule 13 makes its accuracy matter.
+- Window closes Oct 18 2026, 11:59 PM IST (rule 7).
 -->
 
 ## What it is
@@ -119,7 +118,7 @@ works without it.
 One graph per repository, `repo:<owner>-<name>`.
 
 ```text
-(:Person {login, name, emails, firstSeen, lastSeen})
+(:Person {login, name, firstSeen, lastSeen})
     -[:TOUCHED {commits, bulkCommits, adds, dels, lastTs, doa}]->(:File {path, module, alive})
 (:File)-[:CO_CHANGED {weight, support}]->(:File)     stored one way, read undirected
 (:PR {number, mergedAt, title})-[:AUTHORED_BY]->(:Person)
@@ -209,8 +208,18 @@ random seed 20261018:
 | most-active baseline | **17%**    | **43%**    |
 | random baseline      | 7%         | 13%        |
 
-`review` beats random and **loses to the trivial most-active baseline**. That is
-the measured result, published as measured. Ranking whoever reviewed the most PRs
+The same measurement on **vitejs/vite** (30 held out, 28 with a human reviewer, cut
+at `2026-10-09T02:12:26Z`, 267 training PRs, 10 active reviewers):
+
+| predictor            | hit-rate@1 | hit-rate@3 |
+|----------------------|------------|------------|
+| `review`             | 64%        | 79%        |
+| most-active baseline | **71%**    | **100%**   |
+| random baseline      | 18%        | 36%        |
+
+On both repos `review` beats random and **loses to the trivial most-active
+baseline**. On vite the baseline is perfect at k=3, because ten people do all the
+reviewing. That is the measured result, published as measured. Ranking whoever reviewed the most PRs
 is a strong heuristic on a repo with a small active reviewer core. It covers
 69–100% of PRs on every repo we vetted, which is why the headline is `fix`'s
 counterfactual rather than review precision.
@@ -248,7 +257,7 @@ bottleneck.
 - **The 5-candidate shortlist is a documented trade-off, not a tuned dial.**
   `--ceiling` prints its cost: 0 files on fastify, 62 on vite. θ = 0.2 and N = 5 are
   both provisional.
-- **`review` loses to the most-active baseline** (above).
+- **`review` loses to the most-active baseline** on both repos measured (above).
 - **`review` has no open-review load penalty**, because ingest does not fetch open
   PRs.
 - **Renames inside very large commits** can appear as a delete plus an add, because
@@ -264,9 +273,7 @@ server, run `npm run mcp` (JSON-RPC 2.0 over stdio).
 
 ## AI assistance (rule 11)
 
-<!-- Draft. The owner must confirm or correct this before submitting. -->
+<!-- OWNER WRITES THIS. Say which AI tools were used and what you did yourself.
+     Do not submit this placeholder. -->
 
-This project was built with AI coding assistants (Claude Code). The author set
-the design, chose the algorithms, and reviewed the code. The design decisions and
-the measurements behind them are recorded in
-`docs/superpowers/specs/2026-10-15-repo-brain-design.md`.
+TODO(owner): AI-assistance disclosure.
