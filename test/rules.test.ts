@@ -99,7 +99,7 @@ test("moduleOf: first two directory segments", () => {
 });
 
 test("fallbackLogin normalises email local-part and strips GitHub noreply id", () => {
-  assert.equal(fallbackLogin("10000001+BishalSunuwar202@users.noreply.github.com"), "bishalsunuwar202");
+  assert.equal(fallbackLogin("10000001+Dana-Dev@users.noreply.github.com"), "dana-dev");
   assert.equal(fallbackLogin("Alice.Smith@Corp.io"), "alice.smith");
   assert.equal(fallbackLogin("dev@localhost"), "dev");
 });
@@ -108,13 +108,13 @@ const c = (sha: string, email: string): Commit => ({ sha, ts: "2026-01-01T00:00:
 
 test("resolver precedence: sha, then email, then fallback; logins lowercased", () => {
   const map = identityFromHistory([
-    { oid: "s1", author: { email: "Personal@Gmail.com", user: { login: "Alice" } } },
+    { oid: "s1", author: { email: "Personal@Example.com", user: { login: "Alice" } } },
     { oid: "s2", author: { email: "ghost@x.io", user: null } },
   ]);
-  assert.deepEqual([...map.byEmail], [["personal@gmail.com", "Alice"]]);
+  assert.deepEqual([...map.byEmail], [["personal@example.com", "Alice"]]);
   const r = makeResolver(map);
   assert.equal(r(c("s1", "whatever@x.io")), "alice");
-  assert.equal(r(c("other", "personal@gmail.com")), "alice");
+  assert.equal(r(c("other", "personal@example.com")), "alice");
   assert.equal(r(c("s2", "ghost@x.io")), "ghost");
   assert.deepEqual(r.counts, { sha: 1, email: 1, fallback: 1 });
 });
