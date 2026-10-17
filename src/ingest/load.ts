@@ -5,7 +5,10 @@
 //   loadRepo()       runs the schema DDL, then each step via writeBatched (UNWIND)
 //
 // Shape notes (spec §12):
-// - Person keyed by lowercase login (D3, D11); emails stored as an array.
+// - Person keyed by lowercase login (D3, D11). Commit emails are used to RESOLVE that
+//   login during ingest and are deliberately NOT stored on the node: nothing reads
+//   them back, and the hackathon's rule 6 forbids loading personal data into the
+//   graph. They stay in .cache/identity/, which is gitignored.
 // - File {path, module, alive}; module = moduleOf(path) (D12); no loc.
 // - CO_CHANGED: ONE edge per pair, (a)-[:CO_CHANGED]->(b) with a < b; queries
 //   match it undirected (D6).
@@ -35,7 +38,7 @@ const utc = (ts: string) => new Date(ts).toISOString();
 export const CYPHER = {
   person: `UNWIND $rows AS row
 MERGE (p:Person {login: row.login})
-SET p.name = row.name, p.emails = row.emails, p.firstSeen = row.firstSeen, p.lastSeen = row.lastSeen`,
+SET p.name = row.name, p.firstSeen = row.firstSeen, p.lastSeen = row.lastSeen`,
 
   file: `UNWIND $rows AS row
 MERGE (f:File {path: row.path})
@@ -94,7 +97,6 @@ export function buildLoadPlan(model: RepoModel, alive: Set<string>, prs: PullReq
       rows: model.people.map((p) => ({
         login: p.login,
         name: p.name,
-        emails: p.emails,
         firstSeen: utc(p.firstSeen),
         lastSeen: utc(p.lastSeen),
       })),

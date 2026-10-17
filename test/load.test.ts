@@ -57,15 +57,20 @@ test("load plan: node steps before edge steps; every statement is a batched UNWI
   assert.ok(!plan.some((s) => /LIMIT/.test(s.cypher)), "landmine 2: no LIMIT on writes");
 });
 
-test("load plan rows: lowercase login, emails array, module, alive, UTC timestamps", () => {
+test("load plan rows: lowercase login, no emails on the node, module, alive, UTC timestamps", () => {
   const plan = Object.fromEntries(buildLoadPlan(model, alive).map((s) => [s.label, s.rows]));
+  // No emails key: commit emails resolve the login at ingest and are never written
+  // to the node (hackathon rule 6 — no personal data in the graph).
   assert.deepEqual(plan.Person.find((p) => p.login === "alice"), {
     login: "alice",
     name: "alice",
-    emails: ["alice@x.io"],
     firstSeen: "2026-01-01T00:00:00.000Z",
     lastSeen: "2026-03-01T04:15:00.000Z", // +05:45 normalised to UTC
   });
+  assert.ok(
+    !buildLoadPlan(model, alive).some((s) => /emails/.test(s.cypher)),
+    "no load step may write an email address into the graph",
+  );
   assert.deepEqual(plan.File.find((f) => f.path === "pnpm-lock.yaml"), { path: "pnpm-lock.yaml", module: ".", alive: false });
   assert.deepEqual(plan.File.find((f) => f.path === "src/core/a.ts"), { path: "src/core/a.ts", module: "src/core", alive: true });
   assert.equal(plan.Commit.find((c) => c.sha === "c3")!.ts, "2026-03-01T04:15:00.000Z");
