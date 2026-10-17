@@ -119,8 +119,8 @@ and say so; record live checks in the spec.
 The repo is **private** (`github.com/BishalSunuwar202/repo-brain`). Before flipping
 visibility:
 
-- [ ] Replace the real GitHub numeric ID `109662399` with a fake one in
-      `test/gitlog.test.ts` and `test/rules.test.ts` — no test depends on the value.
+- [x] Test fixtures use fake identities only (`10000001`, `example.com`): never the
+      owner's real GitHub ID, username or email.
 - [ ] Confirm `.cache/` and `.falkordata/` are still gitignored and untracked
       (`.cache/identity/` holds email→login mappings fetched from GitHub).
 - [ ] Check no analysed repo's contributor data is committed in fixtures or
