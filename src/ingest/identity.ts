@@ -13,7 +13,7 @@ import type { Commit } from "./gitlog.ts";
 
 export const IDENTITY_CACHE_DIR = join(import.meta.dirname, "..", "..", ".cache", "identity");
 
-/** 109662399+Alice@users.noreply.github.com -> alice; Alice.Smith@corp.io -> alice.smith */
+/** 10000001+Alice@users.noreply.github.com -> alice; Alice.Smith@corp.io -> alice.smith */
 export function fallbackLogin(email: string): string {
   const local = email.toLowerCase().split("@")[0];
   return local.replace(/^\d+\+/, "");
