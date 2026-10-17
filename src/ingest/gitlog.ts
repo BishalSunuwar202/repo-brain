@@ -4,6 +4,8 @@
 //           -> RepoModelBuilder (renames, TOUCHED + doa, CO_CHANGED) -> RepoModel
 
 import { spawn, execFileSync } from "node:child_process";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { botReason, type BotReason } from "./bots.ts";
 import { fallbackLogin } from "./identity.ts";
@@ -158,8 +160,31 @@ export function parseGitLog(text: string): Commit[] {
   return out;
 }
 
+/**
+ * Throws unless `repoPath` is itself a repository's top level. Given a plain dir
+ * inside some other repo, git walks UP and reads that repo's history instead, so
+ * `.cache/repos/fastify` (the dir the clone went into) would report repo-brain's own
+ * commits as fastify's. The clone is one level down: `.cache/repos/<name>/<name>`.
+ */
+export function assertGitRoot(repoPath: string): void {
+  const given = resolve(repoPath);
+  let top: string;
+  try {
+    top = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: given, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch (err) {
+    throw new Error(`${given} is not a git repository: ${String((err as { stderr?: string }).stderr ?? err).trim()}`);
+  }
+  if (top === realpathSync(given)) return;
+  const nested = join(given, basename(given));
+  const hint = existsSync(join(nested, ".git"))
+    ? `the clone is one level down: ${nested}`
+    : `clones under .cache/repos/ sit one level down, at .cache/repos/<name>/<name>`;
+  throw new Error(`${given} is not the root of a git repository: git resolved it to ${top}, a different repo. Pass the clone itself — ${hint}`);
+}
+
 /** Streams commits newest-first from `git log` without buffering the whole output. */
 export async function* streamGitLog(repoPath: string, since?: string, until?: string): AsyncGenerator<Commit> {
+  assertGitRoot(repoPath);
   const git = spawn("git", gitLogArgs(since, until), { cwd: repoPath, stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
   git.stderr.on("data", (d) => (stderr += d));
@@ -179,6 +204,7 @@ export async function* streamGitLog(repoPath: string, since?: string, until?: st
 
 /** Paths present at HEAD; File.alive is membership in this set. */
 export function headFiles(repoPath: string): Set<string> {
+  assertGitRoot(repoPath);
   const out = execFileSync("git", ["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", "HEAD"], {
     cwd: repoPath,
     encoding: "utf8",
