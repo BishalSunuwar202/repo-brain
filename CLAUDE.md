@@ -76,6 +76,12 @@ and say so; record live checks in the spec.
 9. **Reads silently truncate at 10,000 rows** (`RESULTSET_SIZE`). Shape reads to one
    row per file or module, and wrap every result in `underCap()` from
    `src/db/client.ts`. Leave the server setting alone (§15).
+10. An expression mixing a `WITH`-carried value with a fresh aggregate
+   (`RETURN direct + sum(x)`) is **accepted and returns null** — no error, and
+   `ORDER BY` then sorts nulls. Finish each aggregate in its own `WITH`, then
+   combine in `RETURN`. (Verified live on a synthetic fixture; `OPTIONAL MATCH`
+   after an aggregating `WITH` is fine — unmatched rows survive and `sum()` over
+   zero rows is 0, not null.)
 
 ## Honesty requirements
 
