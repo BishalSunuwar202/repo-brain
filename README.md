@@ -134,7 +134,39 @@ neighbours. It is the baseline the backtest measures, not the contribution.
 v1 has **no open-review load penalty**: ingest does not fetch open PRs, so `review`
 cannot know who is already busy (spec §12 D7).
 
-<!-- TODO(backtest): repo-brain-1c fills the measured hit-rate@1/@3 here -->
+**Measured.** On fastify/fastify: 30 held-out merged PRs (bot-authored PRs barred
+from the holdout; all 30 had at least one human reviewer), history cut at
+`2026-09-22T08:46:53Z`, 257 training PRs, 18 reviewers active before the cutoff,
+seed 20261018.
+
+| predictor            | hit-rate@1 | hit-rate@3 |
+|----------------------|------------|------------|
+| `review`             | 13%        | 30%        |
+| most-active baseline | **17%**    | **43%**    |
+| random baseline      | 7%         | 13%        |
+
+`review` beats random and **loses to the trivial most-active baseline**. That is
+the measured result, published as measured. Ranking whoever reviewed the most PRs
+is a strong heuristic on a repo with a small active reviewer core — it covers
+69–100% of PRs on every repo vetted here — which is exactly why this project's
+headline is `fix`'s counterfactual rather than review precision.
+
+Hit-rate@k, not precision@k: most PRs have one or two reviewers, so precision@3 is
+capped near 0.33 and would measure the cap more than the ranking (spec §12 D1).
+
+Reproduce:
+
+```bash
+npm run brain -- --repo fastify/fastify backtest .cache/repos/fastify/fastify \
+  --holdout 30 --pr-limit 300
+```
+
+Leakage control: PRs are sorted by merge time, the newest 30 held out, and
+`git log --until=<cutoff>` cuts commit history at the boundary (strict `<`).
+Held-out PR nodes, their files and their authors are loaded — all of that is
+legitimate input at prediction time — but their `REVIEWED_BY` edges, the answer,
+are not. Without the history cut the held-out PR's own commits sit in the graph
+and `review` scores the author on the very change it is predicting for.
 
 ## How `fix` works
 
