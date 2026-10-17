@@ -98,8 +98,11 @@ and say so; record live checks in the spec.
 
 ## Conventions
 
-- Commit or push only when the user asks, staging by explicit path. Other sessions
-  may share this working tree — leave files you did not write unstaged.
+- Commit and push as work lands; keep each PR small and single-purpose, one topic
+  per PR. Stage by explicit path — never `git add -A`. Other sessions may share this
+  working tree, so leave files you did not write unstaged and do not switch, rebase
+  or reset the shared branch; give a stream its own branch with `git worktree` only
+  when it actually needs one.
 - Ask before adding dependencies beyond `package.json`.
 - Cache every GitHub API response under `.cache/` on first fetch — rate limits bite.
 - Scratch work goes in `.cache/scratch/`, never `src/`.
