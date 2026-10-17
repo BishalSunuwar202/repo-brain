@@ -49,7 +49,8 @@ SET c.ts = row.ts, c.author = row.author`,
 MATCH (p:Person {login: row.login})
 MATCH (f:File {path: row.path})
 MERGE (p)-[t:TOUCHED]->(f)
-SET t.commits = row.commits, t.adds = row.adds, t.dels = row.dels, t.lastTs = row.lastTs, t.doa = row.doa`,
+SET t.commits = row.commits, t.bulkCommits = row.bulkCommits, t.adds = row.adds, t.dels = row.dels,
+    t.lastTs = row.lastTs, t.doa = row.doa`,
 
   coChanged: `UNWIND $rows AS row
 MATCH (a:File {path: row.a})
@@ -115,6 +116,7 @@ export function buildLoadPlan(model: RepoModel, alive: Set<string>, prs: PullReq
         login: t.login,
         path: t.path,
         commits: t.commits,
+        bulkCommits: t.bulkCommits,
         adds: t.adds,
         dels: t.dels,
         lastTs: utc(t.lastTs),

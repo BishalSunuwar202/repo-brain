@@ -15,6 +15,9 @@ export const CO_CHANGE_EXCLUDE: readonly string[] = [
   "bun.lockb",
   "go.sum",
   "Cargo.lock",
+  // D20: prisma/migrations/migration_lock.toml slipped past `*.lock`.
+  "migration_lock.toml",
+  "*_lock.toml",
   "*.snap",
   "__snapshots__/**",
   "dist/**",
@@ -63,4 +66,21 @@ export const isTestPath: PathPredicate = (path) => {
 export function moduleOf(path: string): string {
   const dirs = path.split("/").slice(0, -1);
   return dirs.length ? dirs.slice(0, 2).join("/") : ".";
+}
+
+/** risk reports a bus factor per file kind (spec §14 R2), in this display order. */
+export const FILE_KINDS = ["source", "test", "ci", "docs", "types"] as const;
+export type FileKind = (typeof FILE_KINDS)[number];
+
+/**
+ * test: isTestPath. ci: CI config and dotfiles — any path whose first segment starts
+ * with "." (.github/workflows/x.yml, .gitignore). docs: markdown/text or under docs/.
+ * types: declaration files. source: everything else. Checked test > ci > docs > types.
+ */
+export function fileKind(path: string): FileKind {
+  if (isTestPath(path)) return "test";
+  if (path.startsWith(".")) return "ci";
+  if (/\.(md|mdx|rst|adoc|txt)$/i.test(path) || /^docs?\//.test(path)) return "docs";
+  if (/\.d\.[cm]?ts$/.test(path)) return "types";
+  return "source";
 }

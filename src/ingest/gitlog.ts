@@ -193,8 +193,14 @@ export function headFiles(repoPath: string): Set<string> {
 //   - commits touching > 50 files, counted BEFORE path exclusion (a build commit
 //     with 40 sources + 100 dist files is still bulk)
 //   - excluded paths (lockfiles, generated output; paths.ts)
+//
+// Bulk commits are a structural event, not an authorship event (spec §14 R5): they
+// still produce TOUCHED rows (facts, counted in bulkCommits) and still resolve
+// renames, but set no isCreator and add nothing to doa. A person whose only touches
+// on a file are bulk gets doa 0; a file touched only by bulk commits has doa 0 for
+// everyone and is never reported by risk.
 
-export const BULK_COMMIT_FILES = 50; // commits touching more files are dropped from CO_CHANGED
+export const BULK_COMMIT_FILES = 50; // commits touching more files: no co-change, no doa
 export const MIN_PAIR_WEIGHT = 3;
 const RECENCY_DAYS = 180;
 const DAY_MS = 24 * 3600 * 1000;
@@ -212,9 +218,13 @@ export interface PersonRecord {
 export interface TouchedRecord {
   login: string;
   path: string;
+  /** Authorship commits only — bulk commits excluded (spec §14 R5). */
   commits: number;
+  /** Bulk commits (> BULK_COMMIT_FILES files) that touched the file. Audit only. */
+  bulkCommits: number;
   adds: number;
   dels: number;
+  /** Last authorship touch; last bulk touch only when there is no authorship touch. */
   lastTs: string;
   isCreator: boolean;
   /** Raw score before normalisation, kept for debugging. */
@@ -266,9 +276,11 @@ export interface BuilderOptions {
 
 interface TouchAcc {
   commits: number;
+  bulkCommits: number;
   adds: number;
   dels: number;
   lastMs: number;
+  lastBulkMs: number;
   isCreator: boolean;
 }
 
@@ -350,19 +362,25 @@ export class RepoModelBuilder {
         person.name = c.authorName;
       }
     }
+    const bulk = changes.size > BULK_COMMIT_FILES;
     for (const [path, delta] of changes) {
       let byPerson = this.touches.get(path);
       if (!byPerson) this.touches.set(path, (byPerson = new Map()));
-      const acc = byPerson.get(login) ?? { commits: 0, adds: 0, dels: 0, lastMs: 0, isCreator: false };
-      acc.commits++;
+      const acc = byPerson.get(login) ?? { commits: 0, bulkCommits: 0, adds: 0, dels: 0, lastMs: 0, lastBulkMs: 0, isCreator: false };
       acc.adds += delta.adds;
       acc.dels += delta.dels;
-      acc.lastMs = Math.max(acc.lastMs, ms);
-      acc.isCreator ||= created.has(path);
+      if (bulk) {
+        acc.bulkCommits++;
+        acc.lastBulkMs = Math.max(acc.lastBulkMs, ms);
+      } else {
+        acc.commits++;
+        acc.lastMs = Math.max(acc.lastMs, ms);
+        acc.isCreator ||= created.has(path);
+      }
       byPerson.set(login, acc);
     }
 
-    if (changes.size > BULK_COMMIT_FILES) {
+    if (bulk) {
       this.stats.bulkCommitsDropped++;
       return;
     }
@@ -382,14 +400,17 @@ export class RepoModelBuilder {
     const now = asOf.getTime();
     const touched: TouchedRecord[] = [];
     for (const [path, byPerson] of this.touches) {
-      const rows = [...byPerson].map(([login, t]) => {
-        const days = Math.max(0, (now - t.lastMs) / DAY_MS);
+      const rows = [...byPerson].map(([login, { lastMs, lastBulkMs, ...t }]) => {
+        const days = Math.max(0, (now - lastMs) / DAY_MS);
+        // No authorship commits => no doa at all, not even the recency term.
         const doaRaw =
-          1.0 * (t.isCreator ? 1 : 0) + 0.5 * Math.log(1 + t.commits) + 0.2 * Math.exp(-days / RECENCY_DAYS);
-        return { login, path, ...t, lastTs: new Date(t.lastMs).toISOString(), doaRaw, doa: 0 };
+          t.commits === 0 ? 0 : 1.0 * (t.isCreator ? 1 : 0) + 0.5 * Math.log(1 + t.commits) + 0.2 * Math.exp(-days / RECENCY_DAYS);
+        const lastTs = new Date(t.commits ? lastMs : lastBulkMs).toISOString();
+        return { login, path, ...t, lastTs, doaRaw, doa: 0 };
       });
+      // Bulk-only file: total is 0, every doa stays 0 (no 0/0).
       const total = rows.reduce((s, r) => s + r.doaRaw, 0);
-      for (const { lastMs: _, ...r } of rows) touched.push({ ...r, doa: total > 0 ? r.doaRaw / total : 0 });
+      for (const r of rows) touched.push({ ...r, doa: total > 0 ? r.doaRaw / total : 0 });
     }
 
     const coChanged: CoChangeRecord[] = [];

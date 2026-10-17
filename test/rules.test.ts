@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { botReason, isBot } from "../src/ingest/bots.ts";
-import { CO_CHANGE_EXCLUDE, excludePatterns, isCoChangeExcluded, isTestPath, makeExcluder, moduleOf } from "../src/ingest/paths.ts";
+import { CO_CHANGE_EXCLUDE, excludePatterns, fileKind, isCoChangeExcluded, isTestPath, makeExcluder, moduleOf } from "../src/ingest/paths.ts";
 import { fallbackLogin, identityFromHistory, makeResolver, sinceToDate } from "../src/ingest/identity.ts";
 import type { Commit } from "../src/ingest/gitlog.ts";
 
@@ -26,11 +26,20 @@ test("isBot: git authors, PR authors and reviewers", () => {
   for (const h of humans) assert.equal(isBot(h), false, JSON.stringify(h));
 });
 
-test("exclusion list = spec §12 D4 + D14 additions (bun.lockb, *.snap)", () => {
+test("exclusion list = spec §12 D4 + D14 additions (bun.lockb, *.snap) + §14 D20 (*_lock.toml)", () => {
   assert.deepEqual([...CO_CHANGE_EXCLUDE].sort(), [
     "*-lock.yaml", "*-lock.json", "*.lock", "yarn.lock", "bun.lockb", "go.sum", "Cargo.lock", "*.snap",
+    "migration_lock.toml", "*_lock.toml",
     "__snapshots__/**", "dist/**", "build/**", "vendor/**", "*.min.*", "*.generated.*",
   ].sort());
+});
+
+test("D20: prisma migration_lock.toml is excluded, ordinary toml is not", () => {
+  assert.equal(isCoChangeExcluded("apps/api/prisma/migrations/migration_lock.toml"), true);
+  assert.equal(isCoChangeExcluded("poetry_lock.toml"), true);
+  assert.equal(isCoChangeExcluded("Cargo.toml"), false);
+  assert.equal(isCoChangeExcluded("pyproject.toml"), false);
+  assert.equal(makeExcluder(excludePatterns(["migration_lock.toml", "*_lock.toml"]))("prisma/migration_lock.toml"), false);
 });
 
 test("D14: bun.lockb and loose .snap files are excluded", () => {
@@ -116,4 +125,22 @@ test("sinceToDate handles git's relative form and ISO dates", () => {
   assert.equal(sinceToDate("6 months ago", now).toISOString(), "2026-04-15T12:00:00.000Z");
   assert.equal(sinceToDate("2025-01-01", now).toISOString(), "2025-01-01T00:00:00.000Z");
   assert.throws(() => sinceToDate("last tuesday", now));
+});
+
+test("R2: fileKind — test > ci (dot-path) > docs > types > source", () => {
+  const cases: Record<string, string> = {
+    "test/types/instance.test-d.ts": "test",
+    "lib/route.test.js": "test",
+    ".github/workflows/ci.yml": "ci",
+    ".gitignore": "ci",
+    ".github/CONTRIBUTING.md": "ci",
+    "docs/Reference/Server.md": "docs",
+    "docs/images/logo.png": "docs",
+    "README.md": "docs",
+    "types/instance.d.ts": "types",
+    "lib/route.js": "source",
+    "fastify.js": "source",
+    "package.json": "source",
+  };
+  for (const [path, kind] of Object.entries(cases)) assert.equal(fileKind(path), kind, path);
 });
