@@ -4,21 +4,20 @@
 // Score = doa on the files this PR modifies, plus doa on files that co-change
 // with them, weighted by the co-change support. The PR's author is excluded.
 //
+// Both legs NOMINATE: someone who has only ever touched a co-change neighbour is
+// a candidate too, not just a tie-breaker among people who touched the PR's files.
+// The legs are a UNION ALL of one row per person each, summed by mergeLegs in TS.
+//
 // The Cypher below was probed against the live engine before being written,
 // because the obvious formulation is wrong in two ways that produce
 // plausible-looking output instead of an error:
 //
 //   1. landmine 10 — `RETURN direct + sum(t2.doa * c.support)` is ACCEPTED and
-//      returns null for every row, so ORDER BY sorts nulls. Each aggregate must
-//      be closed in its own WITH before it is combined.
+//      returns null for every row, so ORDER BY sorts nulls. Here the two sums
+//      never meet in Cypher at all: each leg closes its own aggregate.
 //   2. a co-change neighbour g that the PR ALSO modifies would be counted twice,
 //      once as direct and again as co-change. Hence
-//      `WHERE NOT (pr)-[:MODIFIED]->(g)` on the optional leg.
-//
-// Known limitation, kept deliberately: candidates come only from people who
-// directly touched a modified file, so someone who has only ever touched a
-// co-change neighbour can never surface. Co-change ranks candidates, it does not
-// nominate them. The README says so.
+//      `WHERE NOT (pr)-[:MODIFIED]->(g)` on the co-change leg.
 //
 // No open-review load penalty in v1: ingest does not fetch open PRs (spec §12 D7).
 
@@ -35,8 +34,8 @@ export interface ReviewCandidate {
   score: number;
 }
 
-/** One row as the engine returns it. */
-export type ReviewRow = ReviewCandidate;
+/** One row as the engine returns it: one person on one leg, the other leg's sum 0. */
+export type ReviewRow = Omit<ReviewCandidate, "score">;
 
 export const DEFAULT_K = 3;
 
@@ -50,7 +49,7 @@ export function checkK(k: number): number {
  * Top k by score. Ties break on login so a published hit-rate is reproducible
  * rather than dependent on the engine's row order.
  */
-export function rankCandidates(rows: readonly ReviewRow[], k: number): ReviewCandidate[] {
+export function rankCandidates(rows: readonly ReviewCandidate[], k: number): ReviewCandidate[] {
   return rows
     .filter((r) => !isBot({ login: r.login }))
     .map((r) => ({ login: r.login, direct: r.direct, co: r.co, score: r.score }))
@@ -58,14 +57,29 @@ export function rankCandidates(rows: readonly ReviewRow[], k: number): ReviewCan
     .slice(0, checkK(k));
 }
 
+/** Sums each person's rows from the two legs into one candidate. */
+export function mergeLegs(rows: readonly ReviewRow[]): ReviewCandidate[] {
+  const byLogin = new Map<string, ReviewCandidate>();
+  for (const r of rows) {
+    const c = byLogin.get(r.login) ?? { login: r.login, direct: 0, co: 0, score: 0 };
+    c.direct += r.direct;
+    c.co += r.co;
+    c.score = c.direct + c.co;
+    byLogin.set(r.login, c);
+  }
+  return [...byLogin.values()];
+}
+
+// CO_CHANGED is stored in one direction only, so the co-change leg matches it undirected.
 export const REVIEW_CYPHER = `MATCH (pr:PR {number: $number})-[:MODIFIED]->(f:File)<-[t:TOUCHED]-(p:Person)
 WHERE NOT (pr)-[:AUTHORED_BY]->(p)
-WITH pr, p, sum(t.doa) AS direct
-OPTIONAL MATCH (pr)-[:MODIFIED]->(:File)-[c:CO_CHANGED]-(g:File)<-[t2:TOUCHED]-(p)
-WHERE NOT (pr)-[:MODIFIED]->(g)
-WITH p, direct, coalesce(sum(t2.doa * c.support), 0) AS co
-RETURN p.login AS login, direct, co, direct + co AS score
-ORDER BY score DESC`;
+WITH p, sum(t.doa) AS direct
+RETURN p.login AS login, direct, 0.0 AS co
+UNION ALL
+MATCH (pr:PR {number: $number})-[:MODIFIED]->(:File)-[c:CO_CHANGED]-(g:File)<-[t2:TOUCHED]-(p:Person)
+WHERE NOT (pr)-[:MODIFIED]->(g) AND NOT (pr)-[:AUTHORED_BY]->(p)
+WITH p, sum(t2.doa * c.support) AS co
+RETURN p.login AS login, 0.0 AS direct, co`;
 
 export interface ReviewOptions {
   k?: number;
@@ -74,13 +88,10 @@ export interface ReviewOptions {
 export async function review(graph: Graph, prNumber: number, opts: ReviewOptions = {}): Promise<ReviewCandidate[]> {
   const k = checkK(opts.k ?? DEFAULT_K);
   const res = await graph.query<ReviewRow>(REVIEW_CYPHER, { params: { number: prNumber } });
-  // One row per candidate person, so the cap is generous — but a repo with more
-  // than RESULTSET_SIZE candidates would truncate silently (landmine 9).
+  // At most two rows per candidate person (one per leg), so the cap is generous —
+  // but more than RESULTSET_SIZE rows would truncate silently (landmine 9).
   const rows = underCap(res.data, `review(${prNumber}) candidates`);
-  return rankCandidates(
-    rows.map((r) => ({ login: r.login, direct: Number(r.direct), co: Number(r.co), score: Number(r.score) })),
-    k,
-  );
+  return rankCandidates(mergeLegs(rows.map((r) => ({ login: r.login, direct: Number(r.direct), co: Number(r.co) }))), k);
 }
 
 export function presentReview(prNumber: number, candidates: ReviewCandidate[]): string {
