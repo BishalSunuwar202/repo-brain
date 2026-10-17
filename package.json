@@ -11,7 +11,8 @@
     "brain": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
-    "test:live": "REPO_BRAIN_LIVE=1 node --import tsx --test test/live.test.ts"
+    "test:live": "REPO_BRAIN_LIVE=1 node --import tsx --test test/live.test.ts",
+    "mcp": "tsx src/mcp/main.ts"
   },
   "dependencies": {
     "commander": "15.0.0",
