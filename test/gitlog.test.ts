@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRepoModel, parseGitLog, parseNumstatPath, unquotePath, type Commit } from "../src/ingest/gitlog.ts";
+import { buildRepoModel, gitLogArgs, parseGitLog, parseNumstatPath, unquotePath, type Commit } from "../src/ingest/gitlog.ts";
 import { makeResolver } from "../src/ingest/identity.ts";
 
 // Fixtures mirror real `git log --numstat --summary --pretty=format:__C__...` output.
@@ -310,4 +310,13 @@ test("builder exclude option overrides the default list", () => {
   const commits = [1, 2, 3].map((n) => commit(`c${n}`, `2026-01-0${n}T00:00:00Z`, "a@x", files));
   assert.equal(buildRepoModel(commits, AS_OF).coChanged.length, 0, "build/** excluded by default");
   assert.equal(buildRepoModel(commits, AS_OF, { exclude: () => false }).coChanged.length, 1);
+});
+
+test("gitLogArgs takes an --until cutoff, and omits it when not asked", () => {
+  // The backtest MUST cut history at the holdout boundary. Without --until, the
+  // held-out PRs' own commits are in the graph, so review() scores the author on
+  // the very change it is predicting a reviewer for — the prediction reads the
+  // answer. There is no weaker way to say it: no --until, no valid measurement.
+  assert.ok(!gitLogArgs("2 years ago").some((a) => a.startsWith("--until")));
+  assert.ok(gitLogArgs("2 years ago", "2026-08-01T00:00:00.000Z").includes("--until=2026-08-01T00:00:00.000Z"));
 });
