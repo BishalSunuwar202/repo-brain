@@ -41,7 +41,7 @@ Wall-clock time per command, measured 2026-10-17 on the shared container with
 | 4 | `fix --module .github/workflows --budget 3` (fastify) | 0.54–0.58 s |
 | 5 | `fix --ceiling \| head -n 12` (fastify, whole repo) | 0.59–0.61 s |
 | 6 | `fix --ceiling \| head -n 11` (vite, whole repo) | 0.75–0.78 s |
-| 7 | `backtest .cache/repos/fastify/fastify --holdout 30 --pr-limit 300` | 1.24–1.51 s |
+| 7 | `backtest .cache/repos/fastify/fastify --holdout 30 --pr-limit 300` | 1.21–1.51 s |
 | 8 | `repo_fix` over MCP, piped through `jq` (fastify, `.github/workflows`) | 0.53–0.74 s |
 
 No step stalls the video. Every step except the backtest finishes in under 0.8 s, and most of that is
@@ -145,6 +145,11 @@ demo graph is untouched.
 > in its top three 30% of the time. Ranking whoever reviews the most gets 43%.
 > Random gets 13%. So `review` loses to the trivial baseline, and we publish that.
 > It's why the headline is `fix`, not reviewer recommendation."
+
+About 14 `[backtest]`/`[prs]` progress lines print first, on stderr, and the table
+comes under them. They stay in, because they show the throwaway graph being built
+and the history being cut. They are not suppressed with `2>/dev/null`, which would
+also hide a real error mid-take. Wait for the table before speaking.
 
 What to notice: the three-row table and the closing line, "MEASURED on 30 held-out
 PRs, not a projection. review does NOT beat the trivial most-active baseline at
