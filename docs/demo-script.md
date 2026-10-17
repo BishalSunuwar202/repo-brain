@@ -41,6 +41,7 @@ Wall-clock time per command, measured 2026-10-17 on the shared container with
 | 4 | `fix --module .github/workflows --budget 3` (fastify) | 0.54–0.58 s |
 | 5 | `fix --ceiling \| head -n 12` (fastify, whole repo) | 0.59–0.61 s |
 | 6 | `fix --ceiling \| head -n 11` (vite, whole repo) | 0.75–0.78 s |
+| 9 | `repo_fix` over MCP, piped through `jq` (fastify, `.github/workflows`) | 0.53–0.74 s |
 
 No step stalls the video. Every step finishes in under 0.8 s, and most of that is
 Node and tsx startup. Without the warm-up, the first command of a session takes
@@ -52,9 +53,11 @@ step ever needs a bigger repo than fastify, use vite, which takes under 0.8 s.
 
 ## Steps and narration
 
-Allow about 2:50 in total with `review` and `backtest`, or about 2:20 without them
-(see [Fallback](#fallback-if-review-or-backtest-is-not-ready)). Commands take under
-1 s each, so the narration sets the length.
+Allow about 3:15 in total with `review`, `backtest` and the MCP step, or about 2:35
+without `review` and `backtest` (see [Fallback](#fallback-if-review-or-backtest-is-not-ready)).
+That is over the 3-minute target. The MCP step (step 9) adds 15 s, and nothing else
+was trimmed to make room for it. Commands take under 1 s each, so the narration sets
+the length.
 
 ### 0:00 — 1. `risk` (about 25 s)
 
@@ -137,7 +140,33 @@ baselines (spec §12 D1). Say honestly that the trivial most-active baseline alr
 covers most PRs (CLAUDE.md), which is why the headline is `fix` and not review
 precision. Quote only numbers the backtest printed.
 
-### 2:45 — 9. FalkorDB Browser (about 15 s)
+### 2:45 — 9. The same `fix`, asked by an agent over MCP (about 15 s)
+
+This is the only on-camera evidence for the agent track, so keep it in. Step 9 was
+timed at 0.53–0.74 s (step 9 row in the timings table):
+
+```bash
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"repo_fix","arguments":{"repo":"fastify/fastify","module":".github/workflows"}}}' \
+  | npm run mcp --silent | tail -n 1 | jq -r '.result.content[0].text' \
+  | jq -c '{atRiskBefore, atRiskAfter, atRiskAfterIsProjection, bottleneck, bottleneckReviewers, unserved, reviews: ([.assignments[].files[]] | length)}'
+```
+
+The two `jq` filters only make the reply legible on screen. Without them the reply
+is about 2 KB of escaped JSON. The server itself needs no `jq`.
+
+> "An agent gets the same answer. This is the MCP server, which exposes the four
+> commands as tools. An agent calls `repo_fix` and gets the same nine reviews,
+> the same four bottleneck reviewers, and the same one file left over. The JSON
+> carries its own warning, `atRiskAfterIsProjection: true`, because an agent never
+> sees the CLI's printed caveat."
+
+What to notice: the numbers match step 3 exactly (10 before, projected 1, 9
+reviews), and the `atRiskAfterIsProjection: true` flag. Every MCP tool takes a
+required `repo`, so an agent cannot get the unquotable fallback identities.
+
+### 3:00 — 10. FalkorDB Browser (about 15 s)
 
 Switch to the Browser window and run:
 
@@ -148,7 +177,7 @@ WHERE t.doa > 0.2 AND f.alive RETURN p, t, f
 
 That draws 5 people, 20 files and 32 edges, a picture you can read at a glance. One
 person holds 19 of the 32 edges and the other four hold 7, 4, 1 and 1 (counted
-2026-10-17). That is the graph behind step 3.
+2026-10-17). That is the graph behind steps 3 and 9.
 Close on the prior-art credit (CodeScene, Fritz et al. Degree-of-Knowledge,
 SofiaWL, RevFinder). The new thing is the assembly: max-flow/min-cut prescribing
 reviews on a knowledge graph.
@@ -159,7 +188,8 @@ The demo lands without them, because `fix` is the headline and it works today.
 
 - Leave `slot` lines 7 and 8 in `demo.sh`, but **cut those frames in the edit**. Or
   comment them out before recording so no SLOT marker reaches the video.
-- Go straight from step 6 to the Browser (step 9). Total runtime is then about 2:20.
+- Go straight from step 6 to MCP (step 9), then the Browser (step 10). Total runtime
+  is then about 2:35.
 - To recover the time, slow step 3 down. Spend the extra 20–30 s on the min-cut
   sentence, because that is what the video is for.
 - Don't put a backtest number on screen or in the narration until the command has
