@@ -35,6 +35,144 @@ output below is from fastify/fastify, ingested on 2026-10-15.
 `npm test` runs the unit tests. `npm run test:live` runs the database tests and needs
 the container.
 
+## The graph data model
+
+One graph per repository, named `repo:<owner>-<name>`. Everything is derived from
+`git log` plus merged-PR metadata — no LLM is involved in building the graph.
+
+```text
+(:Person {login, name, firstSeen, lastSeen})
+(:File   {path, module, alive})
+(:Commit {sha, ts, author})
+(:PR     {number, title, mergedAt})
+
+(:Person)-[:TOUCHED    {commits, bulkCommits, adds, dels, lastTs, doa}]->(:File)
+(:File)  -[:CO_CHANGED {weight, support}]->(:File)
+(:PR)    -[:AUTHORED_BY]->(:Person)
+(:PR)    -[:MODIFIED]->(:File)
+(:PR)    -[:REVIEWED_BY {at}]->(:Person)
+```
+
+Indexes applied before every load (`src/schema/ddl.ts`):
+
+```cypher
+CREATE INDEX FOR (p:Person) ON (p.login)
+CREATE INDEX FOR (f:File)   ON (f.path)
+CREATE INDEX FOR (f:File)   ON (f.module)
+CREATE INDEX FOR (c:Commit) ON (c.sha)
+CREATE INDEX FOR (r:PR)     ON (r.number)
+```
+
+Four decisions worth knowing:
+
+- **`Person` is keyed by lowercase GitHub login**, resolved from commit email via the
+  GitHub API and cached. One human with two commit emails must become one node, or a
+  bus-factor-1 file stops looking bus-factor-1.
+- **`TOUCHED.doa` is degree of authorship**, normalised per file so each file's doa
+  sums to 1. That is what makes "holds more than half of this file" meaningful.
+- **`CO_CHANGED` is stored once per pair**, `(a)-[:CO_CHANGED]->(b)` with `a < b`, and
+  matched undirected in every query. `support` is the share of the rarer file's
+  commits that include both.
+- **Timestamps are UTC ISO strings**, so string order is time order. Git's `%aI`
+  keeps the author's local offset, which would break that.
+
+## The queries and algorithms it depends on
+
+Each block below is copied from the constant that runs it, so what the README claims
+and what the code sends are the same text.
+
+**`algo.maxFlow` — the contribution** (`MAXFLOW_CYPHER`, `src/tools/fix.ts`). The
+network is materialised in a throwaway `flow:<uuid>` graph and solved in the engine:
+
+```cypher
+MATCH (s:FlowNode {name: $source}) MATCH (t:FlowNode {name: $sink})
+WITH collect(s) AS sources, collect(t) AS targets
+CALL algo.maxFlow({
+  sourceNodes: sources, targetNodes: targets,
+  relationshipTypes: ['FLOWS_TO'], capacityProperty: 'cap', nodeLabels: ['FlowNode']
+})
+YIELD edges, edgeFlows, maxFlow
+UNWIND range(0, size(edges) - 1) AS i
+RETURN maxFlow, startNode(edges[i]).name AS src, endNode(edges[i]).name AS dst, edgeFlows[i] AS flow
+```
+
+`SOURCE` and `SINK` are real nodes rather than the procedure's built-in multi-source
+mode, which wires infinite-capacity virtual nodes and would erase the capacity-1 and
+budget limits the whole model rests on.
+
+**Bus-factor-1 files** (`RISK_CYPHER`, `src/tools/risk.ts`). One row per file, never
+per edge: a read returning more than 10,000 rows is silently truncated by FalkorDB,
+so every read is also wrapped in `underCap()`.
+
+```cypher
+MATCH (p:Person)-[t:TOUCHED]->(f:File)
+WHERE f.alive AND t.commits > 0 AND ($module IS NULL OR f.module = $module)
+WITH f, collect({login: p.login, doa: t.doa, lastTs: t.lastTs}) AS holders, sum(t.doa) AS total, sum(t.commits) AS commits
+WHERE commits >= $minCommits AND total > 0
+WITH f, holders, total, commits, [h IN holders WHERE h.doa / total > $threshold] AS dominant
+WHERE size(dominant) = 1
+WITH f, holders, total, commits, dominant[0] AS sole
+RETURN f.path AS path, f.module AS module, sole.login AS soleHolder, sole.doa / total AS share,
+       commits, size(holders) AS holders, [h IN holders WHERE h.login <> sole.login | h.lastTs] AS otherTs
+ORDER BY share DESC, path
+```
+
+The list comprehension is not stylistic: FalkorDB has no `EXISTS { MATCH … }`
+subqueries, so "is there exactly one dominant holder" has to be collected and then
+filtered.
+
+**Reviewer suggestion** (`REVIEW_CYPHER`, `src/tools/review.ts`). Two legs: people who
+touched the PR's own files, and people who touched a co-change neighbour of them. The
+second leg lets co-change *nominate* a reviewer, not merely re-rank one.
+
+```cypher
+MATCH (pr:PR {number: $number})-[:MODIFIED]->(f:File)<-[t:TOUCHED]-(p:Person)
+WHERE NOT (pr)-[:AUTHORED_BY]->(p)
+WITH p, sum(t.doa) AS direct
+RETURN p.login AS login, direct, 0.0 AS co
+UNION ALL
+MATCH (pr:PR {number: $number})-[:MODIFIED]->(:File)-[c:CO_CHANGED]-(g:File)<-[t2:TOUCHED]-(p:Person)
+WHERE NOT (pr)-[:MODIFIED]->(g) AND NOT (pr)-[:AUTHORED_BY]->(p)
+WITH p, sum(t2.doa * c.support) AS co
+RETURN p.login AS login, 0.0 AS direct, co
+```
+
+The two sums are added per person in TypeScript, never in Cypher — see the engine
+note below. `NOT (pr)-[:MODIFIED]->(g)` stops a neighbour the PR also changed being
+counted on both legs, and the author is excluded on both, or they could re-enter
+through a neighbour of their own change.
+
+**Co-change neighbours** (`IMPACT_CYPHER`, `src/tools/impact.ts`):
+
+```cypher
+MATCH (f:File {path: $path})-[c:CO_CHANGED]-(g:File)
+WHERE g.alive AND c.support > $minSupport
+RETURN g.path AS path, c.weight AS weight, c.support AS support
+ORDER BY support DESC, weight DESC, path
+LIMIT 100
+```
+
+**Reviewer eligibility for `fix`** (`ELIGIBLE_CYPHER`, `src/tools/fix.ts`) — one row
+per module, so the result cannot blow the row cap however large the repo:
+
+```cypher
+MATCH (r:Person)-[t:TOUCHED]->(g:File)
+WHERE g.alive AND t.commits > 0 AND t.doa > $theta AND ($module IS NULL OR g.module = $module)
+RETURN g.module AS module, collect({login: r.login, via: g.path, doa: t.doa}) AS experts
+```
+
+### Two engine behaviours the code works around
+
+Both were found by probing a live graph, not by reading documentation:
+
+- `algo.maxFlow` returns **only positive-flow edges, and never the min cut.** The cut
+  is derived in TypeScript with one breadth-first search over the residual network
+  from `SOURCE`.
+- An expression mixing a `WITH`-carried value with a fresh aggregate
+  (`RETURN direct + sum(x)`) is **accepted and returns null** — no error, and
+  `ORDER BY` then sorts the nulls. Every aggregate is closed in its own `WITH`, and
+  `review`'s two legs are summed in TypeScript for exactly this reason.
+
 ## The four commands
 
 ### `impact <path>`: what else moves when I touch this file
@@ -145,8 +283,18 @@ seed 20261018.
 | most-active baseline | **17%**    | **43%**    |
 | random baseline      | 7%         | 13%        |
 
-`review` beats random and **loses to the trivial most-active baseline**. That is
-the measured result, published as measured. Ranking whoever reviewed the most PRs
+The same measurement on **vitejs/vite** (30 held out, 28 with a human reviewer,
+cut at `2026-10-09T02:12:26Z`, 267 training PRs, 10 active reviewers):
+
+| predictor            | hit-rate@1 | hit-rate@3 |
+|----------------------|------------|------------|
+| `review`             | 64%        | 79%        |
+| most-active baseline | **71%**    | **100%**   |
+| random baseline      | 18%        | 36%        |
+
+On both repos `review` beats random and **loses to the trivial most-active
+baseline** — on vite the baseline is simply perfect at k=3, because ten people do
+all the reviewing. That is the measured result, published as measured. Ranking whoever reviewed the most PRs
 is a strong heuristic on a repo with a small active reviewer core — it covers
 69–100% of PRs on every repo vetted here — which is exactly why this project's
 headline is `fix`'s counterfactual rather than review precision.
@@ -223,8 +371,11 @@ flows but **never the cut**, so the min cut is derived in TypeScript with one
 breadth-first search over the residual network from SOURCE. The cut does two jobs:
 
 - **It proves minimality.** By the max-flow min-cut theorem, the cut's capacity
-  equals the max flow. No set of assignments can de-risk more files within these
-  budgets, and the solution uses exactly one review per de-risked file.
+  equals the max flow. Within this network — the same `--candidates` shortlist and
+  the same `--budget` — no set of assignments can de-risk more files, and the
+  solution uses exactly one review per de-risked file. It is **not** a claim about
+  all possible assignments: lifting the shortlist can cover more, which is exactly
+  what `--ceiling` measures (undici 13 vs 2, vite 106 vs 44).
 - **It names the bottleneck.** The reviewers whose SINK edges cross the cut are
   the people whose budget binds. The output then splits what is left exactly:
   files with no eligible reviewer at all (`--theta` is the lever), and files
