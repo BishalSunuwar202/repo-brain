@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parsePRs, type PrNode } from "../src/ingest/github.ts";
+import { fillFiles, parsePRs, type PrNode } from "../src/ingest/github.ts";
 import { buildLoadPlan } from "../src/ingest/load.ts";
 
 const actor = (login: string, __typename = "User") => ({ __typename, login });
@@ -102,4 +102,66 @@ test("parsePRs output feeds buildLoadPlan: AUTHORED_BY, MODIFIED and REVIEWED_BY
   assert.deepEqual(by("AUTHORED_BY"), [{ number: 1, login: "alice" }]);
   assert.deepEqual(by("MODIFIED"), [{ number: 1, path: "lib/reply.js", module: "lib", alive: true }]);
   assert.deepEqual(by("REVIEWED_BY"), [{ number: 1, login: "bob", at: "2026-09-01T11:00:00.000Z" }]);
+});
+
+// --- file pagination --------------------------------------------------------
+// A PR with more than 100 changed files cannot be fetched in one page: GitHub caps
+// a connection's `first` at 100, so the old advice to "raise FILES_PER_PR" was
+// impossible to follow. vite PR 23319 (246 files) is the case that found this.
+
+test("fillFiles pages until the whole file list is present", () => {
+  const asked: (string | null)[] = [];
+  const n = node({
+    number: 23319,
+    files: { totalCount: 5, pageInfo: { hasNextPage: true, endCursor: "c2" }, nodes: [{ path: "a" }, { path: "b" }] },
+  });
+  fillFiles([n], (number, after) => {
+    assert.equal(number, 23319);
+    asked.push(after);
+    return after === "c2"
+      ? { totalCount: 5, pageInfo: { hasNextPage: true, endCursor: "c4" }, nodes: [{ path: "c" }, { path: "d" }] }
+      : { totalCount: 5, pageInfo: { hasNextPage: false, endCursor: "c5" }, nodes: [{ path: "e" }] };
+  });
+  assert.deepEqual(asked, ["c2", "c4"], "must follow the cursor it was handed");
+  assert.deepEqual(n.files.nodes.map((f) => f.path), ["a", "b", "c", "d", "e"]);
+  // Once filled, the invariant parsePRs enforces holds.
+  assert.deepEqual(parsePRs([n])[0].files, ["a", "b", "c", "d", "e"]);
+});
+
+test("fillFiles leaves a complete PR alone and spends no request on it", () => {
+  const n = node({ files: { totalCount: 1, nodes: [{ path: "only.ts" }] } });
+  fillFiles([n], () => {
+    throw new Error("must not fetch for a PR whose files are already complete");
+  });
+  assert.deepEqual(n.files.nodes, [{ path: "only.ts" }]);
+});
+
+test("fillFiles stops instead of looping forever when a page comes back empty", () => {
+  const n = node({ files: { totalCount: 9, pageInfo: { hasNextPage: true, endCursor: "c" }, nodes: [{ path: "a" }] } });
+  fillFiles([n], () => ({ totalCount: 9, pageInfo: { hasNextPage: true, endCursor: "c" }, nodes: [] }));
+  // Incomplete, so the guard in parsePRs must still fire rather than report 1 file.
+  assert.throws(() => parsePRs([n]), /9 files but only 1/);
+});
+
+test("the truncation error names pagination, not the impossible 'raise FILES_PER_PR'", () => {
+  // GitHub's connection page cap is 100: raising the constant cannot fix this.
+  assert.throws(() => parsePRs([node({ files: { totalCount: 246, nodes: [{ path: "a.ts" }] } })]), (err: Error) => {
+    assert.doesNotMatch(err.message, /raise FILES_PER_PR/);
+    assert.match(err.message, /pagination|paginat/i);
+    return true;
+  });
+});
+
+test("fillFiles refetches from the first page when the cached page has no file cursor", () => {
+  // Pages cached before the query asked for files.pageInfo have no cursor to resume
+  // from. Throwing there would mean every stale cache entry needs a manual purge, so
+  // the whole file list is refetched from the start instead.
+  const asked: (string | null)[] = [];
+  const n = node({ number: 23319, files: { totalCount: 3, nodes: [{ path: "stale-a" }] } });
+  fillFiles([n], (_number, after) => {
+    asked.push(after);
+    return { totalCount: 3, pageInfo: { hasNextPage: false, endCursor: "z" }, nodes: [{ path: "a" }, { path: "b" }, { path: "c" }] };
+  });
+  assert.deepEqual(asked, [null], "must start from the first page");
+  assert.deepEqual(n.files.nodes.map((f) => f.path), ["a", "b", "c"], "stale partial list must be replaced, not appended to");
 });
