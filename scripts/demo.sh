@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Demo sequence for the 2-3 minute screen recording. Narration, timings and the
+# fallback path are in docs/demo-script.md; run this from anywhere in the repo.
+#
+#   scripts/demo.sh             wait for Enter after each step (narrate, then press)
+#   DEMO_PAUSE=6 scripts/demo.sh  sleep 6s after each step instead (rehearsal)
+#   DEMO_TIME=1 scripts/demo.sh   print each command's wall-clock time (re-measuring)
+#
+# Needs the repo-brain-db container up with fastify/fastify and vitejs/vite ingested.
+# Every number fix prints after "projected" is a projection, never a measurement.
+
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+PAUSE="${DEMO_PAUSE:-}"
+TIMEFORMAT=$'\e[2m  (%3Rs)\e[0m'
+
+pause() {
+  if [[ -n "$PAUSE" ]]; then sleep "$PAUSE"; else read -r -s -p $'\e[2m  ⏎\e[0m' _; echo; fi
+}
+
+# step "title" "command" : print the title and the command exactly as it runs, run it.
+step() {
+  clear || true
+  printf '\e[1;36m# %s\e[0m\n' "$1"
+  printf '\e[1m$ %s\e[0m\n\n' "$2"
+  if [[ -n "${DEMO_TIME:-}" ]]; then time eval "$2"; else eval "$2"; fi
+  echo
+  pause
+}
+
+# slot "name" : a step that is not built yet. Prints a marker instead of output.
+slot() {
+  clear || true
+  printf '\e[1;33m# SLOT: %s (not built yet; skipped, see docs/demo-script.md fallback)\e[0m\n' "$1"
+  pause
+}
+
+# Warm tsx's compile cache so step 1 is as fast as the rest (first run ~0.3s slower).
+npm run -s brain -- --help >/dev/null
+
+# 1. Where knowledge is concentrated. Other tools can do this part.
+step "Who is the only person who knows each file?" \
+  'npm run -s brain -- --repo fastify/fastify risk --limit 10'
+
+# 2. The graph carries co-change: what else moves when you touch a file.
+step "What else changes when you touch fastify.js?" \
+  'npm run -s brain -- --repo fastify/fastify impact fastify.js --limit 10'
+
+# 3. The headline: the minimal set of review assignments, on one module that fits a screen.
+step "fix: the fewest reviews that de-risk .github/workflows" \
+  'npm run -s brain -- --repo fastify/fastify fix --module .github/workflows --ceiling'
+
+# 4. The min cut said bandwidth is what binds; raise every reviewer's budget to 3 and the last file clears.
+step "The cut said: budget. Raise it to 3." \
+  'npm run -s brain -- --repo fastify/fastify fix --module .github/workflows --budget 3'
+
+# 5. Whole repo, summary only (the full prescription is 31 reviews long).
+step "fix across all of fastify" \
+  'npm run -s brain -- --repo fastify/fastify fix --ceiling | head -n 12'
+
+# 6. Contrast: vite has BOTH bottlenecks, bandwidth and nobody-eligible.
+step "vite: two different answers from one cut" \
+  'npm run -s brain -- --repo vitejs/vite fix --ceiling | head -n 11'
+
+# 7. review: who should review PR <n>. Fill in once src/tools/review.ts is wired.
+# step "Who should review this PR?" 'npm run -s brain -- --repo fastify/fastify review <prNumber>'
+slot "review <prNumber>"
+
+# 8. backtest: hit-rate@1/@3 vs the two baselines. Fill in once it is wired.
+# step "Is review any good? Measured on held-out PRs" 'npm run -s brain -- --repo fastify/fastify backtest'
+slot "backtest"
+
+# 9. FalkorDB Browser (manual): open http://localhost:3100, graph repo:fastify-fastify, run:
+#   MATCH (p:Person)-[t:TOUCHED]->(f:File {module: '.github/workflows'})
+#   WHERE t.doa > 0.2 AND f.alive RETURN p, t, f
+clear || true
+printf '\e[1;36m# Now: FalkorDB Browser at http://localhost:3100 (query in this script, step 9)\e[0m\n'
