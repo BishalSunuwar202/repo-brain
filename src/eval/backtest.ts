@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import type { FalkorDB, Graph } from "falkordb";
 import { isBot } from "../ingest/bots.ts";
 import type { PullRequest } from "../ingest/github.ts";
+import { isMissingGraph } from "../ingest/load.ts";
 import { review } from "../tools/review.ts";
 import { mostActiveRanking, predictMostActive, predictRandom, reviewerActivity, reviewerPool } from "./baselines.ts";
 
@@ -163,6 +164,13 @@ export async function backtest(db: FalkorDB, repo: string, opts: BacktestOptions
       },
     };
   } finally {
-    await graph.delete();
+    // If ingest threw before writing anything, the graph does not exist and
+    // GRAPH.DELETE raises "Invalid graph operation on empty key" — which would
+    // replace the real error with a confusing one.
+    try {
+      await graph.delete();
+    } catch (err) {
+      if (!isMissingGraph(err)) throw err;
+    }
   }
 }
