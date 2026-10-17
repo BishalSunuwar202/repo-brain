@@ -168,6 +168,35 @@ legitimate input at prediction time — but their `REVIEWED_BY` edges, the answe
 are not. Without the history cut the held-out PR's own commits sit in the graph
 and `review` scores the author on the very change it is predicting for.
 
+## MCP server: the same four tools, for an agent
+
+```bash
+npm run mcp          # JSON-RPC 2.0 over stdio
+```
+
+Register it with any MCP client:
+
+```json
+{ "command": "npx", "args": ["tsx", "src/mcp/main.ts"], "cwd": "<this repo>" }
+```
+
+It exposes `repo_impact`, `repo_risk`, `repo_review` and `repo_fix`. Two things are
+deliberate:
+
+- **`repo` is required on every tool.** The CLI warns on stderr when `--repo` is
+  missing, because identities then fall back to email local-parts and the numbers
+  are not quotable. An MCP client never sees stderr, so the schema makes that state
+  unreachable instead of merely discouraged.
+- **`repo_fix`'s payload carries its own disclaimer.** The CLI prints "a projection,
+  not a measurement" next to `atRiskAfter`; an agent reading JSON would never see
+  that prose, so `atRiskAfterIsProjection: true` and the `disclaimer` string travel
+  in the result, beside the `budget`, `theta` and `candidates` the number is only
+  meaningful with.
+
+No MCP SDK dependency — the four methods an MCP client needs (`initialize`,
+`tools/list`, `tools/call`, `ping`) are about 120 lines of framing in
+`src/mcp/server.ts`, and `src/mcp/tools.ts` knows nothing about transport.
+
 ## How `fix` works
 
 `fix` builds an explicit flow network:

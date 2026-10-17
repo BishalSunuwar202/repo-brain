@@ -133,6 +133,6 @@ visibility:
 - [x] `impact`, `risk` (calibrated, §15), `fix` (max-flow/min-cut, §16) — CLI wired
 - [x] `github.ts` PR fetch → `review` → backtest hit-rate@1/@3 vs two baselines
       (measured: fastify, 30 held out, 13%/30% vs the most-active baseline's 17%/43%)
-- [ ] MCP server — **cut** (spec §8 cut order; nothing of it is built)
+- [x] MCP server — stdio JSON-RPC, four tools, no SDK dependency (`npm run mcp`)
 - [x] README with the measured number and both baselines beside it
 - [ ] Demo video; make public; submit
