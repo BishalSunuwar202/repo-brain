@@ -6,9 +6,13 @@ import { Command } from "commander";
 import { connect, graphName, openRepoGraph } from "./db/client.ts";
 import { RepoModelBuilder, headFiles, streamGitLog, type RepoModel } from "./ingest/gitlog.ts";
 import { fetchIdentityMap, makeResolver, sinceToDate, type Resolver } from "./ingest/identity.ts";
+import { fetchMergedPRs } from "./ingest/github.ts";
 import { buildLoadPlan, loadRepo } from "./ingest/load.ts";
 import { FILE_KINDS, excludePatterns, makeExcluder } from "./ingest/paths.ts";
+import { DEFAULT_HOLDOUT, DEFAULT_PR_LIMIT, backtest } from "./eval/backtest.ts";
+import { DEFAULT_SEED } from "./eval/baselines.ts";
 import { impact } from "./tools/impact.ts";
+import { DEFAULT_K, checkK, presentReview, review } from "./tools/review.ts";
 import { DEFAULT_BUDGET, DEFAULT_CANDIDATES, DEFAULT_THETA, checkBudget, checkCandidates, checkTheta, fix } from "./tools/fix.ts";
 import { DEFAULT_MIN_COMMITS, DEFAULT_THRESHOLD, activeFiles, checkKinds, risk, segmentRisk } from "./tools/risk.ts";
 import type { FalkorDB, Graph } from "falkordb";
@@ -23,6 +27,8 @@ const collect = (value: string, previous: string[]) => [...previous, value];
 interface ParseOpts {
   since: string;
   asOf?: string;
+  /** Cut history here. The backtest needs it so predictions cannot see the future. */
+  until?: string;
   noExclude: string[];
 }
 
@@ -52,7 +58,7 @@ async function parseRepo(repoPath: string, opts: ParseOpts): Promise<Parsed> {
   const identify = makeResolver(repo ? fetchIdentityMap(repo, sinceToDate(opts.since)) : undefined);
   const patterns = excludePatterns(opts.noExclude);
   const builder = new RepoModelBuilder({ identify, exclude: makeExcluder(patterns) });
-  for await (const c of streamGitLog(repoPath, opts.since)) builder.add(c);
+  for await (const c of streamGitLog(repoPath, opts.since, opts.until)) builder.add(c);
   const model = builder.finish(opts.asOf ? new Date(opts.asOf) : new Date());
   return { model, alive: headFiles(repoPath), identify, reportable: Boolean(repo), excludePatterns: patterns };
 }
@@ -103,15 +109,17 @@ parseOptions(program.command("parse"))
 parseOptions(program.command("ingest"))
   .description("parse git history and load it into FalkorDB graph repo:<owner>-<name>")
   .option("--fresh", "delete the repo graph before loading")
-  .action(async (repoPath: string, opts: CliParseOpts & { fresh?: boolean }) => {
+  .option("--prs <n>", "also fetch this many recent merged PRs with their reviews and files via gh (spec §4)")
+  .action(async (repoPath: string, opts: CliParseOpts & { fresh?: boolean; prs?: string }) => {
     const repo: string | undefined = program.opts().repo;
     if (!repo) throw new Error("ingest requires --repo owner/name (graph naming + identity resolution, spec §12 D15)");
     const { model, alive, identify } = await parseRepo(resolve(repoPath), { ...opts, noExclude: opts.exclude });
     console.error(
       `parsed: ${model.people.length} people, ${model.files.length} files, ${model.coChanged.length} pairs; identity ${JSON.stringify(identify.counts)}`,
     );
-    // PRs are not fetched yet (github.ts is a stub); the git layer loads on its own.
-    const plan = buildLoadPlan(model, alive);
+    // Fetching PRs needs `gh` logged in; every page is cached under .cache/github/.
+    const prs = opts.prs ? await fetchMergedPRs(repo, checkCount(opts.prs, "--prs"), { log: (m) => console.error(`[prs] ${m}`) }) : [];
+    const plan = buildLoadPlan(model, alive, prs);
     const db = await connect();
     try {
       const graph = await openRepoGraph(db, repo);
@@ -139,10 +147,11 @@ async function withGraph<T>(fn: (graph: Graph, repo: string, db: FalkorDB) => Pr
 
 const pct = (x: number) => `${(100 * x).toFixed(0)}%`.padStart(4);
 
-const notYet = (name: string) => () => {
-  console.error(`${name}: not implemented yet`);
-  process.exitCode = 1;
-};
+function checkCount(value: string, what: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`${what} must be an integer >= 1, got "${value}"`);
+  return n;
+}
 
 program
   .command("impact")
@@ -212,7 +221,21 @@ program
       });
     },
   );
-program.command("review").description("suggest reviewers for a PR").argument("<prNumber>").action(notYet("review"));
+program
+  .command("review")
+  .description("suggest reviewers for a PR (spec §5); this is the backtest's baseline, not the contribution")
+  .argument("<prNumber>")
+  .option("--top <n>", "how many candidates to return", String(DEFAULT_K))
+  .option("--json", "print the full result as JSON")
+  .action(async (prNumber: string, opts: { top: string; json?: boolean }) => {
+    const number = checkCount(prNumber, "prNumber");
+    const k = checkK(Number(opts.top));
+    await withGraph(async (graph) => {
+      const candidates = await review(graph, number, { k });
+      if (opts.json) console.log(JSON.stringify(candidates, null, 2));
+      else console.log(presentReview(number, candidates));
+    });
+  });
 program
   .command("fix")
   .description("minimal review assignments that de-risk bus-factor-1 files (max-flow / min-cut, spec §5)")
@@ -290,7 +313,56 @@ program
       });
     },
   );
-program.command("backtest").description("hit-rate@1/@3 of review() on held-out PRs vs baselines").action(notYet("backtest"));
+program
+  .command("backtest")
+  .description("measured hit-rate@1/@3 of review() on held-out PRs vs two baselines (spec §6)")
+  .argument("<repoPath>", "local clone to parse git history from")
+  .option("--holdout <n>", "most recent non-bot-authored merged PRs to predict for", String(DEFAULT_HOLDOUT))
+  .option("--pr-limit <n>", "merged PRs to fetch (creation order != merge order, so over-fetch)", String(DEFAULT_PR_LIMIT))
+  .option("--since <when>", "git --since value", "2 years ago")
+  .option("--seed <n>", "seed for the random baseline, so the number is reproducible", String(DEFAULT_SEED))
+  .option("--json", "print the full result as JSON")
+  .action(async (repoPath: string, opts: { holdout: string; prLimit: string; since: string; seed: string; json?: boolean }) => {
+    const repo: string | undefined = program.opts().repo;
+    if (!repo) throw new Error("backtest requires --repo owner/name (identity resolution + PR fetch, spec §12 D15)");
+    const db = await connect();
+    try {
+      const result = await backtest(
+        db,
+        repo,
+        {
+          holdout: checkCount(opts.holdout, "--holdout"),
+          prLimit: checkCount(opts.prLimit, "--pr-limit"),
+          seed: Number(opts.seed),
+          log: (m) => console.error(`[backtest] ${m}`),
+        },
+        {
+          fetch: (r, limit) => fetchMergedPRs(r, limit, { log: (m) => console.error(`[prs] ${m}`) }),
+          ingest: async (graph, until, prs) => {
+            // asOf === until: doa recency is measured from the cutoff, not from today.
+            const { model, alive } = await parseRepo(resolve(repoPath), { since: opts.since, asOf: until, until, noExclude: [] });
+            await loadRepo(graph, buildLoadPlan(model, alive, prs), { log: (m) => console.error(`[backtest] ${m}`) });
+          },
+        },
+      );
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      const { baselines: b } = result;
+      console.log(`\n${graphName(repo)}  backtest: ${result.heldOut} held-out PRs, ${result.scored} with a human reviewer, history cut at ${result.cutoff}`);
+      console.log("                        hit@1  hit@3");
+      console.log(`  review                 ${pct(result.hitRateAt1)}   ${pct(result.hitRateAt3)}`);
+      console.log(`  most-active baseline   ${pct(b.mostActive.hit1)}   ${pct(b.mostActive.hit3)}`);
+      console.log(`  random baseline        ${pct(b.random.hit1)}   ${pct(b.random.hit3)}`);
+      const beatsActive = result.hitRateAt3 > b.mostActive.hit3;
+      console.log(
+        `\nMEASURED on ${result.scored} held-out PRs, not a projection. review ${beatsActive ? "beats" : "does NOT beat"} the trivial most-active baseline at k=3.`,
+      );
+    } finally {
+      await db.close();
+    }
+  });
 
 try {
   await program.parseAsync();

@@ -34,8 +34,11 @@ const HEADER = "__C__";
 // `--summary` is not in the spec's command: it adds `create mode` lines, the only
 // way to know who created a file. Without it, isCreator would credit whoever
 // touched a file first inside the --since window.
-export function gitLogArgs(since = "2 years ago"): string[] {
-  return [
+// `until` cuts history at a cutoff. The backtest needs it: without it the
+// held-out PRs' own commits are in the graph, so review() scores an author on the
+// very change it is predicting a reviewer for, and the hit-rate is meaningless.
+export function gitLogArgs(since = "2 years ago", until?: string): string[] {
+  const args = [
     "-c",
     "core.quotePath=false",
     "log",
@@ -46,6 +49,8 @@ export function gitLogArgs(since = "2 years ago"): string[] {
     `--pretty=format:${HEADER}%H|%aI|%aE|%aN`,
     `--since=${since}`,
   ];
+  if (until) args.push(`--until=${until}`);
+  return args;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,8 +159,8 @@ export function parseGitLog(text: string): Commit[] {
 }
 
 /** Streams commits newest-first from `git log` without buffering the whole output. */
-export async function* streamGitLog(repoPath: string, since?: string): AsyncGenerator<Commit> {
-  const git = spawn("git", gitLogArgs(since), { cwd: repoPath, stdio: ["ignore", "pipe", "pipe"] });
+export async function* streamGitLog(repoPath: string, since?: string, until?: string): AsyncGenerator<Commit> {
+  const git = spawn("git", gitLogArgs(since, until), { cwd: repoPath, stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
   git.stderr.on("data", (d) => (stderr += d));
   const exited = new Promise<number>((resolve) => git.on("close", (code) => resolve(code ?? 1)));
