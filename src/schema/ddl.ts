@@ -10,7 +10,6 @@ export const DDL: string[] = [
   "CREATE INDEX FOR (f:File) ON (f.module)",
   "CREATE INDEX FOR (c:Commit) ON (c.sha)",
   "CREATE INDEX FOR (r:PR) ON (r.number)",
-  "CREATE INDEX FOR (k:Knowledge) ON (k.id)",
 ];
 
 /**
