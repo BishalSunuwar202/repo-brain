@@ -253,8 +253,8 @@ test("D3: one human with two emails is ONE person, so a bus-factor-1 file stays 
   // so neither crossed the 80% risk threshold and the file looked safe.
   const commits = [
     commit("c3", "2026-09-01T00:00:00Z", "bishal24@gmail.com", ["core.ts"]),
-    commit("c2", "2026-08-01T00:00:00Z", "109662399+Bishal@users.noreply.github.com", ["core.ts"]),
-    commit("c1", "2026-01-01T00:00:00Z", "109662399+Bishal@users.noreply.github.com", ["core.ts"], { created: ["core.ts"] }),
+    commit("c2", "2026-08-01T00:00:00Z", "10000001+Bishal@users.noreply.github.com", ["core.ts"]),
+    commit("c1", "2026-01-01T00:00:00Z", "10000001+Bishal@users.noreply.github.com", ["core.ts"], { created: ["core.ts"] }),
   ];
   const split = buildRepoModel(commits, AS_OF); // fallback only: two different local parts
   assert.equal(split.people.length, 2);
@@ -263,7 +263,7 @@ test("D3: one human with two emails is ONE person, so a bus-factor-1 file stays 
   const identify = makeResolver({ bySha: new Map([["c3", "Bishal"]]), byEmail: new Map() });
   const merged = buildRepoModel(commits, AS_OF, { identify });
   assert.equal(merged.people.length, 1);
-  assert.deepEqual(merged.people[0].emails, ["109662399+bishal@users.noreply.github.com", "bishal24@gmail.com"]);
+  assert.deepEqual(merged.people[0].emails, ["10000001+bishal@users.noreply.github.com", "bishal24@gmail.com"]);
   assert.deepEqual(
     merged.touched.map((t) => [t.login, t.commits, t.isCreator, t.doa]),
     [["bishal", 3, true, 1]],

@@ -99,7 +99,7 @@ test("moduleOf: first two directory segments", () => {
 });
 
 test("fallbackLogin normalises email local-part and strips GitHub noreply id", () => {
-  assert.equal(fallbackLogin("109662399+BishalSunuwar202@users.noreply.github.com"), "bishalsunuwar202");
+  assert.equal(fallbackLogin("10000001+BishalSunuwar202@users.noreply.github.com"), "bishalsunuwar202");
   assert.equal(fallbackLogin("Alice.Smith@Corp.io"), "alice.smith");
   assert.equal(fallbackLogin("dev@localhost"), "dev");
 });

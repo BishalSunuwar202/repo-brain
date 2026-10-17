@@ -1,92 +1,136 @@
 # Repo Brain — agent orientation
 
-Read this first. It is deliberately short; the design lives in
-`docs/superpowers/specs/2026-10-15-repo-brain-design.md`. **Read that spec before
-doing any design work, and do not redesign it.** Its **§12 decision log is binding
-and supersedes earlier sections where they conflict.**
+Hackathon entry for **FalkorDB Graph Hacks** (Oct 15–18 2026, solo build). Ingests a
+repo's git history into FalkorDB (Redis-protocol graph DB, a *subset* of OpenCypher)
+and answers questions from a CLI: `impact`, `risk`, `review`, `fix`. The headline is
+`fix`: max-flow / min-cut prescribing the **minimal** set of review assignments that
+reduces bus-factor risk, subject to an expertise floor.
 
-## What this is
+**Hard deadline: submission in by Oct 18 2026 18:00 IST.** Favour boring working code
+over abstraction. When behind, cut per spec §8 — never cut `fix`, the backtest
+number, or the demo video.
 
-Hackathon entry for **FalkorDB Graph Hacks** (Oct 15–18 2026, online, solo build).
-Ingests a git repo's history into FalkorDB (Redis-protocol graph DB, a *subset* of
-OpenCypher) and answers four questions from a CLI. The headline feature is `fix`:
-max-flow / min-cut to prescribe the **minimal** set of code-review assignments that
-reduces knowledge-concentration (bus-factor) risk, subject to an expertise floor.
+## The spec is binding
 
-**Hard deadline: submission in by Oct 18 2026 18:00 IST.** Favour boring working
-code over abstraction. When behind, cut per the spec's cut order (§8) — never cut
-`fix`, the backtest number, or the demo video.
+`docs/superpowers/specs/2026-10-15-repo-brain-design.md`. Read it before any design
+work; build what it says rather than redesigning. Later sections supersede earlier
+ones where they conflict:
 
-## Decisions already made — do not relitigate
+- §12 decision log D1–D17 (post-scaffold review)
+- §13 and §16 "Verified live" — what has actually been run against the engine
+- §14 D18–D21 (first live ingest), §15 R1–R6 (risk calibration), §16 F1–F3 (`fix` as built)
 
-- **TypeScript**, Node **>=22** (falkordb 6.8.0 requires it), ESM. No Python. (Owner is a JS/TS dev; a deadline is
-  the wrong place to learn a language.)
-- Client: `falkordb` (official falkordb-ts). Tests: built-in `node:test`.
+Provisional values, to be tuned on the backtest: θ = 0.2 (`--theta`, §15 R3) and the
+5-candidate shortlist (`--candidates`, §16 F1).
+
+## Decisions already made
+
+- **TypeScript**, Node **>=22** (falkordb 6.8.0 requires it), ESM, `node:test`,
+  `commander`, client `falkordb`. No Python.
 - CLI first, MCP server second, **no web UI**.
-- One graph per repo: `repo:<owner>-<name>`, using FalkorDB's multigraph topology.
-- No LLM anywhere in the ingest path. Ingest is deterministic git parsing.
+- One graph per repo: `repo:<owner>-<name>`. `fix` solves in a throwaway
+  `flow:<uuid>` graph and always deletes it.
+- Ingest is deterministic git parsing. No LLM anywhere in the ingest path.
+- `--repo owner/name` is required for any number you report (§12 D15). Without it,
+  identities fall back to email local-parts and the output is unquotable.
+- Pin an absolute `--since` date for published numbers; relative values drift with
+  the wall clock.
 
-## Verified environment facts
+## Environment
 
-- FalkorDB Browser is on **port 3100**. Ports 3000 and 3001 are BOTH held by
-  unrelated `node` dev servers from the user's work projects. **Never kill those.**
-- Container `repo-brain-db` is live: `-p 6379:6379 -p 3100:3000`, volume `.falkordata/`.
-- Container: `repo-brain-db`, data volume `.falkordata/` (not `--rm`).
-- `algo.maxFlow` takes `relationshipTypes` — **not** `relTypes`, which is what
-  `algo.SPpaths` takes. See spec §5 for the verified signature.
-- `algo.maxFlow` does **not** return the min-cut. It is derived in TS (spec §5).
-- Multi-source/sink in `algo.maxFlow` uses *infinite-capacity* virtual super-nodes,
-  so it cannot express our capacity constraints. We materialise explicit
-  SOURCE/SINK nodes in a throwaway `flow:<uuid>` graph.
+- FalkorDB container `repo-brain-db` at `redis://localhost:6379`, volume
+  `.falkordata/`, Browser on **port 3100**. Ports 3000 and 3001 belong to the user's
+  unrelated work dev servers — leave them running.
+- Leave docker to the user: the container is already up and shared.
+- Ingested graphs: fastify/fastify, nodejs/undici, vitejs/vite, pnpm/pnpm,
+  FalkorDB/FalkorDB.
+- Clones for analysis live in `.cache/repos/<name>/`, one fresh empty dir each,
+  `git clone --single-branch` (no blobless clone). They are untrusted checkouts: the
+  only permitted interaction is `git log` with the path passed as an argument — no
+  `npm install`, build or script inside them (§14 D21).
 
-## Cypher landmines (FalkorDB is not Neo4j)
+## FalkorDB facts (verified — verify anything new)
 
-1. Unreferenced relationships are only existence-checked — add `WHERE ID(e) >= 0`
-   when counting over `-[e]->`, or counts come back wrong.
-2. `LIMIT` does not restrict eager operations — never `CREATE ... RETURN ... LIMIT`.
+Before using a procedure, check `https://docs.falkordb.com/algorithms/<name>.md`
+and say so; record live checks in the spec.
+
+- `algo.maxFlow` takes `relationshipTypes` (`algo.SPpaths` takes `relTypes`). It
+  returns **only positive-flow edges** and never the min cut — the cut is derived in
+  TS. Its multi-source mode uses infinite-capacity super-nodes, hence explicit
+  SOURCE/SINK nodes in the flow graph.
+- `startNode(e)` / `endNode(e)` work on yielded edges.
+
+### Cypher landmines
+
+1. Count over `-[e]->` with `WHERE ID(e) >= 0`, or unreferenced edges are only
+   existence-checked and counts come back wrong.
+2. `LIMIT` does not restrict eager operations — keep it off writes.
 3. Indexes do not optimise `<>` filters.
 4. No aggregations inside pattern comprehensions.
 5. No regex operators — use `CONTAINS` / `STARTS WITH` / `string.matchRegEx()`.
-6. No label expressions `(n:A|B)` — use `WHERE n:A OR n:B`.
+6. No label unions `(n:A|B)` — use `WHERE n:A OR n:B`.
 7. Vector index queries do not combine with property filters.
-8. **No `EXISTS { MATCH ... }` subqueries** — verified failure, parse error. Collect
-   rows in the aggregation and filter with a list comprehension instead (spec §13).
-   Also avoid `duration.inDays()` / `datetime()`; pass precomputed UTC ISO strings.
+8. No `EXISTS { MATCH … }` subqueries: collect in the aggregation and filter with a
+   list comprehension. Pass precomputed UTC ISO strings instead of `datetime()` /
+   `duration.inDays()`.
+9. **Reads silently truncate at 10,000 rows** (`RESULTSET_SIZE`). Shape reads to one
+   row per file or module, and wrap every result in `underCap()` from
+   `src/db/client.ts`. Leave the server setting alone (§15).
+10. An expression mixing a `WITH`-carried value with a fresh aggregate
+   (`RETURN direct + sum(x)`) is **accepted and returns null** — no error, and
+   `ORDER BY` then sorts nulls. Finish each aggregate in its own `WITH`, then
+   combine in `RETURN`. (Verified live on a synthetic fixture; `OPTIONAL MATCH`
+   after an aggregating `WITH` is fine — unmatched rows survive and `sum()` over
+   zero rows is 0, not null.)
 
 ## Honesty requirements
 
-- The README must credit prior art (CodeScene, Fritz et al. Degree-of-Knowledge,
+- The README credits prior art (CodeScene, Fritz et al. Degree-of-Knowledge,
   SofiaWL, RevFinder). The novelty claim is the **assembly**, not the components.
-  Do not overstate it — it was already pressure-tested and narrowed once.
-- The eval must report a **real measured** hit-rate@1/@3 (§12 D1 — NOT precision@k)
-  from the backtest against
-  two baselines. No synthetic data, no hand-labelling, no estimated numbers
+- The eval reports a **real measured** hit-rate@1/@3 (§12 D1 — not precision@k) from
+  the backtest against two baselines. No synthetic data, hand-labelling, or estimates
   presented as measured.
+- `fix`'s "after" number is a **projection** (atRiskBefore − maxFlow), never a
+  measurement. Quote it with its N and its `--ceiling` (§16 F1, F3).
+
+## Eval + demo repos (§15 D8 update)
+
+- Backtest and demo: **fastify/fastify**. Backup: getsentry/sentry-javascript.
+- Source-concentrated counterpart for the README: **vitejs/vite**.
+- FalkorDB/FalkorDB is dropped as a demo (its HEAD is a recent import; almost no
+  co-change). Also vetted: undici (mild), pnpm (single-maintainer, too long to demo).
+- The headline is `fix`'s counterfactual, not review precision — the trivial
+  most-active baseline covers 69–100% of PRs everywhere.
 
 ## Conventions
 
-- Do not `git commit` or `git push` unless explicitly asked.
-- Do not add dependencies beyond those in `package.json` without asking.
-- Do not invent FalkorDB procedure signatures. Verify against
-  `https://docs.falkordb.com/algorithms/<name>.md` (every docs page has a `.md`
-  variant) and say so when you do.
-- Cache every GitHub API response to `.cache/` on first fetch — rate limits bite.
-- Scratch work goes in `.cache/`, never in `src/`.
+- Commit and push as work lands; keep each PR small and single-purpose, one topic
+  per PR. Stage by explicit path — never `git add -A`. Other sessions may share this
+  working tree, so leave files you did not write unstaged and do not switch, rebase
+  or reset the shared branch; give a stream its own branch with `git worktree` only
+  when it actually needs one.
+- Ask before adding dependencies beyond `package.json`.
+- Cache every GitHub API response under `.cache/` on first fetch — rate limits bite.
+- Scratch work goes in `.cache/scratch/`, never `src/`.
+- Live tests need the container: `npm run test:live`.
+
+## Before making the repo public (submission will require it)
+
+The repo is **private** (`github.com/BishalSunuwar202/repo-brain`). Before flipping
+visibility:
+
+- [ ] Replace the real GitHub numeric ID `109662399` with a fake one in
+      `test/gitlog.test.ts` and `test/rules.test.ts` — no test depends on the value.
+- [ ] Confirm `.cache/` and `.falkordata/` are still gitignored and untracked
+      (`.cache/identity/` holds email→login mappings fetched from GitHub).
+- [ ] Check no analysed repo's contributor data is committed in fixtures or
+      example output.
 
 ## Status (keep this current)
 
-- [x] Design spec written and approved (+ §12 decision log — binding)
-- [x] `algo.maxFlow` signature verified
-- [x] Project scaffold + `src/ingest/gitlog.ts`, 17/17 tests passing
-- [x] Eval repos vetted → `docs/superpowers/specs/repo-candidates.md`
-- [x] FalkorDB container running + `maxFlow = 13` verified live (spec §13)
-- [x] Parser hardening: identity resolution, lockfile + bot exclusion (§12 D3–D7), 27/27 tests
-- [ ] Ingest → `impact` → `risk` → `review` + backtest → `fix` → MCP → video
-
-## Eval + demo repos (§12 D8)
-
-- Backtest number: **fastify/fastify**. Backup: getsentry/sentry-javascript.
-- `risk`/`fix` demo: **FalkorDB/FalkorDB** (git history only — no FalkorDB repo
-  qualifies for the backtest; their top-3 reviewers cover 91% of PRs).
-- Headline is `fix`'s counterfactual, NOT review precision — the trivial
-  most-active baseline covers 69–100% of PRs everywhere.
+- [x] Spec + decision log; `algo.maxFlow` verified live
+- [x] Ingest: git parsing, identity resolution, bot/lockfile/bulk-commit rules
+- [x] `impact`, `risk` (calibrated, §15), `fix` (max-flow/min-cut, §16) — CLI wired
+- [ ] `github.ts` PR fetch → `review` → backtest hit-rate@1/@3 vs two baselines
+- [ ] MCP server
+- [ ] README with the measured number; demo video; make public; submit
