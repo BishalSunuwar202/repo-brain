@@ -9,8 +9,9 @@ import { fetchIdentityMap, makeResolver, sinceToDate, type Resolver } from "./in
 import { buildLoadPlan, loadRepo } from "./ingest/load.ts";
 import { FILE_KINDS, excludePatterns, makeExcluder } from "./ingest/paths.ts";
 import { impact } from "./tools/impact.ts";
+import { DEFAULT_BUDGET, DEFAULT_CANDIDATES, DEFAULT_THETA, checkBudget, checkCandidates, checkTheta, fix } from "./tools/fix.ts";
 import { DEFAULT_MIN_COMMITS, DEFAULT_THRESHOLD, activeFiles, checkKinds, risk, segmentRisk } from "./tools/risk.ts";
-import type { Graph } from "falkordb";
+import type { FalkorDB, Graph } from "falkordb";
 
 const program = new Command()
   .name("brain")
@@ -120,7 +121,8 @@ parseOptions(program.command("ingest"))
     }
   });
 
-async function withGraph<T>(fn: (graph: Graph, repo: string) => Promise<T>): Promise<T> {
+// fix needs db too: it solves the flow network in its own throwaway graph.
+async function withGraph<T>(fn: (graph: Graph, repo: string, db: FalkorDB) => Promise<T>): Promise<T> {
   const repo: string | undefined = program.opts().repo;
   if (!repo) throw new Error("this command needs --repo owner/name to pick the graph");
   const db = await connect();
@@ -129,7 +131,7 @@ async function withGraph<T>(fn: (graph: Graph, repo: string) => Promise<T>): Pro
     if (!(await db.list()).includes(graphName(repo))) {
       throw new Error(`no graph ${graphName(repo)} — run: npm run brain -- --repo ${repo} ingest <repoPath>`);
     }
-    return await fn(await openRepoGraph(db, repo), repo);
+    return await fn(await openRepoGraph(db, repo), repo, db);
   } finally {
     await db.close();
   }
@@ -213,12 +215,81 @@ program
 program.command("review").description("suggest reviewers for a PR").argument("<prNumber>").action(notYet("review"));
 program
   .command("fix")
-  .description("minimal review assignments that de-risk knowledge concentration")
+  .description("minimal review assignments that de-risk bus-factor-1 files (max-flow / min-cut, spec §5)")
   .option("--module <module>")
-  .option("--budget <n>", "k_r: extra reviews each reviewer can take (spec §12 D7)", "2")
-  .option("--threshold <share>", "risk dominance share (spec §14 D18)", String(DEFAULT_THRESHOLD))
+  .option("--budget <n>", "k_r: extra reviews each reviewer can take (spec §12 D7)", String(DEFAULT_BUDGET))
+  .option("--theta <share>", "expertise floor: a reviewer needs MORE than this doa on another file in the module (spec §15 R3, provisional)", String(DEFAULT_THETA))
+  .option("--candidates <n>", "strongest eligible reviewers per file offered to the solver", String(DEFAULT_CANDIDATES))
+  .option("--threshold <share>", "risk: one person must hold MORE than this share of doa (spec §15 R1)", String(DEFAULT_THRESHOLD))
+  .option("--min-commits <n>", "risk activity floor: authorship commits on the file (spec §15 R1)", String(DEFAULT_MIN_COMMITS))
+  .option("--kind <kind>", `only this file kind, repeatable: ${FILE_KINDS.join(", ")}`, collect, [])
   .option("--no-exclude <glob>", "keep a pattern from the exclusion list (repeatable)", collect, [])
-  .action(notYet("fix"));
+  .option("--as-of <iso>", "reference time for days-since-other (default: now)")
+  .option("--ceiling", "also solve with no shortlist, to show what --candidates costs (a second solve)")
+  .option("--json", "print the full result as JSON")
+  .action(
+    async (opts: {
+      module?: string;
+      ceiling?: boolean;
+      budget: string;
+      theta: string;
+      candidates: string;
+      threshold: string;
+      minCommits: string;
+      kind: string[];
+      exclude: string[];
+      asOf?: string;
+      json?: boolean;
+    }) => {
+      await withGraph(async (graph, repo, db) => {
+        const fixOpts = {
+          module: opts.module,
+          budget: checkBudget(Number(opts.budget)),
+          theta: checkTheta(Number(opts.theta)),
+          candidates: checkCandidates(Number(opts.candidates)),
+          threshold: Number(opts.threshold),
+          minCommits: Number(opts.minCommits),
+          kinds: checkKinds(opts.kind),
+          asOf: opts.asOf ? new Date(opts.asOf) : undefined,
+          exclude: makeExcluder(excludePatterns(opts.exclude)),
+          ceiling: opts.ceiling,
+        };
+        const result = await fix(graph, db, fixOpts);
+        if (opts.json) return console.log(JSON.stringify({ repo, ...fixOpts, exclude: undefined, ...result }, null, 2));
+
+        const scope = [opts.module && `module ${opts.module}`, fixOpts.kinds.length && `kind ${fixOpts.kinds.join(",")}`].filter(Boolean).join(", ");
+        const reviews = result.atRiskBefore - result.atRiskAfter;
+        console.log(
+          `${graphName(repo)}  fix: budget ${fixOpts.budget} reviews/person, reviewer needs doa >${fixOpts.theta} on another file in the module, top ${fixOpts.candidates} candidates per file${scope ? `  [${scope}]` : ""}`,
+        );
+        console.log(`\n  at risk now          ${String(result.atRiskBefore).padStart(5)}  (one person holds >${fixOpts.threshold} of doa, >=${fixOpts.minCommits} authorship commits)`);
+        console.log(`  have a reviewer      ${String(result.coverable).padStart(5)}`);
+        console.log(`  projected at risk    ${String(result.atRiskAfter).padStart(5)}  IF every review below happens — a projection, not a measurement`);
+        if (result.ceiling !== null) {
+          console.log(`    with no shortlist  ${String(result.ceiling).padStart(5)}  (every eligible reviewer allowed; top ${fixOpts.candidates} costs ${result.atRiskAfter - result.ceiling})`);
+        }
+        // Exact split of what is left: a file with no eligible reviewer can never be
+        // served, so every other unserved file is waiting on someone's budget.
+        const noReviewer = result.atRiskBefore - result.coverable;
+        const atBudget = result.atRiskAfter - noReviewer;
+        const names = result.bottleneckReviewers;
+        const shown = names.length > 8 ? `${names.slice(0, 8).join(", ")} +${names.length - 8} more` : names.join(", ");
+        console.log(`  bottleneck           ${result.bottleneck}`);
+        if (atBudget) console.log(`    ${String(atBudget).padStart(5)} left because reviewers are at budget (--budget): ${shown}`);
+        if (noReviewer) console.log(`    ${String(noReviewer).padStart(5)} left because nobody clears the expertise floor (--theta)`);
+        if (result.unserved.length && result.unserved.length <= 10) {
+          console.log(`  still at risk`);
+          for (const f of result.unserved) console.log(`    ${f}`);
+        } else if (result.unserved.length) console.log(`  still at risk        ${result.unserved.length} files (--json lists them)`);
+        if (!reviews) return;
+        console.log(`\n${reviews} review${reviews === 1 ? "" : "s"} for ${result.assignments.length} reviewer${result.assignments.length === 1 ? "" : "s"} (the minimum that achieves the projection):`);
+        for (const a of result.assignments) {
+          console.log(`  ${a.reviewer}`);
+          for (const f of a.files) console.log(`    ${f}`);
+        }
+      });
+    },
+  );
 program.command("backtest").description("hit-rate@1/@3 of review() on held-out PRs vs baselines").action(notYet("backtest"));
 
 try {
