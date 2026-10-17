@@ -119,8 +119,8 @@ and say so; record live checks in the spec.
 The repo is **private** (`github.com/BishalSunuwar202/repo-brain`). Before flipping
 visibility:
 
-- [ ] Replace the real GitHub numeric ID `109662399` with a fake one in
-      `test/gitlog.test.ts` and `test/rules.test.ts` — no test depends on the value.
+- [x] Test fixtures use fake identities only (`10000001`, `example.com`): never the
+      owner's real GitHub ID, username or email.
 - [ ] Confirm `.cache/` and `.falkordata/` are still gitignored and untracked
       (`.cache/identity/` holds email→login mappings fetched from GitHub).
 - [ ] Check no analysed repo's contributor data is committed in fixtures or
@@ -131,6 +131,8 @@ visibility:
 - [x] Spec + decision log; `algo.maxFlow` verified live
 - [x] Ingest: git parsing, identity resolution, bot/lockfile/bulk-commit rules
 - [x] `impact`, `risk` (calibrated, §15), `fix` (max-flow/min-cut, §16) — CLI wired
-- [ ] `github.ts` PR fetch → `review` → backtest hit-rate@1/@3 vs two baselines
-- [ ] MCP server
-- [ ] README with the measured number; demo video; make public; submit
+- [x] `github.ts` PR fetch → `review` → backtest hit-rate@1/@3 vs two baselines
+      (measured: fastify, 30 held out, 13%/30% vs the most-active baseline's 17%/43%)
+- [ ] MCP server — **cut** (spec §8 cut order; nothing of it is built)
+- [x] README with the measured number and both baselines beside it
+- [ ] Demo video; make public; submit
