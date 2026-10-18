@@ -448,7 +448,7 @@ headline knowledge risk is a lockfile is a disaster. Apply the same exclusion to
 factual).
 
 **D15 — `--repo owner/name` is REQUIRED for any run that produces a reported number.**
-The local fallback cannot merge `bishalsunuwar202` with `bishalsunuwar24`, and worse,
+The local fallback cannot merge `jsmith` with `john.smith`, and worse,
 it can wrongly *merge* two different humans (`john@a.com` + `john@b.com` → `john`).
 Only the GitHub mapping is trustworthy. Without `--repo`, print a loud warning that
 the output is not suitable for reporting. Never quote a number from a fallback run.
