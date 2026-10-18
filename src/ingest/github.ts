@@ -41,11 +41,12 @@ export interface PrNode {
   title: string;
   mergedAt: string;
   author: Actor;
-  files: { totalCount: number; nodes: { path: string }[] };
+  files: { totalCount: number; pageInfo?: PageInfo; nodes: { path: string }[] };
   reviews: { totalCount: number; nodes: { state: string; submittedAt: string; author: Actor }[] };
 }
 
 /** Per-PR page sizes. Raise these if a truncation error fires rather than papering over it. */
+/** GitHub's hard cap on a connection page. Not a knob: a bigger PR needs pagination. */
 export const FILES_PER_PR = 100;
 export const REVIEWS_PER_PR = 100;
 const PRS_PER_PAGE = 50;
@@ -66,7 +67,9 @@ export function parsePRs(nodes: PrNode[]): PullRequest[] {
       throw new Error(`PR ${n.number}: ${n.reviews.totalCount} reviews but only ${n.reviews.nodes.length} fetched — raise REVIEWS_PER_PR`);
     }
     if (n.files.totalCount > n.files.nodes.length) {
-      throw new Error(`PR ${n.number}: ${n.files.totalCount} files but only ${n.files.nodes.length} fetched — raise FILES_PER_PR`);
+      throw new Error(
+        `PR ${n.number}: ${n.files.totalCount} files but only ${n.files.nodes.length} fetched. GitHub caps a connection page at ${FILES_PER_PR}, so file pagination did not complete — see fillFiles.`,
+      );
     }
     if (!n.author) continue;
     out.push({
@@ -84,6 +87,64 @@ export function parsePRs(nodes: PrNode[]): PullRequest[] {
   return out;
 }
 
+export interface PageInfo {
+  hasNextPage: boolean;
+  endCursor: string;
+}
+
+export interface FilePage {
+  totalCount: number;
+  pageInfo: PageInfo;
+  nodes: { path: string }[];
+}
+
+/** Fetches one further page of a PR's files, starting after `cursor`. */
+export type FilePageFetcher = (number: number, cursor: string | null) => FilePage;
+
+/** A PR with 5,000 changed files is a vendored dump, not a review unit. */
+const MAX_FILE_PAGES = 50;
+
+/**
+ * Completes the file list of any PR that did not fit in one page (GitHub caps a
+ * connection at FILES_PER_PR). Mutates the nodes in place; parsePRs still enforces
+ * the invariant afterwards, so an incomplete fill fails loudly instead of silently
+ * reporting a short file list. Found by vite PR 23319: 246 files.
+ */
+export function fillFiles(nodes: PrNode[], fetchPage: FilePageFetcher, log: (msg: string) => void = () => {}): void {
+  for (const n of nodes) {
+    if (n.files.totalCount <= n.files.nodes.length) continue;
+    // A page cached before the query asked for files.pageInfo has no cursor to resume
+    // from; start over from the first page rather than demand a cache purge.
+    const resumable = Boolean(n.files.pageInfo?.hasNextPage);
+    let cursor: string | null = resumable ? n.files.pageInfo!.endCursor : null;
+    if (!resumable) n.files.nodes = [];
+    let pages = 0;
+    while (n.files.nodes.length < n.files.totalCount) {
+      if (++pages > MAX_FILE_PAGES) throw new Error(`PR ${n.number}: still incomplete after ${MAX_FILE_PAGES} file pages`);
+      const page = fetchPage(n.number, cursor);
+      // An empty page would otherwise spin on the same cursor forever.
+      if (page.nodes.length === 0) break;
+      n.files.nodes.push(...page.nodes);
+      if (!page.pageInfo.hasNextPage) break;
+      cursor = page.pageInfo.endCursor;
+    }
+    log(`PR ${n.number}: ${n.files.nodes.length}/${n.files.totalCount} files after ${pages} extra page(s)`);
+  }
+}
+
+const FILES_QUERY = `
+query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      files(first: ${FILES_PER_PR}, after: $cursor) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes { path }
+      }
+    }
+  }
+}`;
+
 const QUERY = `
 query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -94,7 +155,7 @@ query($owner: String!, $name: String!, $cursor: String) {
         title
         mergedAt
         author { __typename login }
-        files(first: ${FILES_PER_PR}) { totalCount nodes { path } }
+        files(first: ${FILES_PER_PR}) { totalCount pageInfo { hasNextPage endCursor } nodes { path } }
         reviews(first: ${REVIEWS_PER_PR}) { totalCount nodes { state submittedAt author { __typename login } } }
       }
     }
@@ -150,8 +211,22 @@ export async function fetchMergedPRs(repo: string, limit: number, opts: FetchOpt
     cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
   } while (cursor && nodes.length < limit);
 
-  const prs = parsePRs(nodes.slice(0, limit));
-  const ghosts = nodes.slice(0, limit).length - prs.length;
+  const wanted = nodes.slice(0, limit);
+  fillFiles(
+    wanted,
+    (number, cursor) =>
+      cached(dir, `files-${number}-${cursor ?? "first"}`, () => {
+        log(`fetching files page for PR ${number}`);
+        const args = ["api", "graphql", "-f", `query=${FILES_QUERY}`, "-F", `owner=${owner}`, "-F", `name=${name}`, "-F", `number=${number}`];
+        if (cursor) args.push("-f", `cursor=${cursor}`);
+        const out = execFileSync("gh", args, { encoding: "utf8", maxBuffer: 512 * 1024 * 1024 });
+        return JSON.parse(out).data.repository.pullRequest.files as FilePage;
+      }),
+    log,
+  );
+
+  const prs = parsePRs(wanted);
+  const ghosts = wanted.length - prs.length;
   if (ghosts > 0) log(`dropped ${ghosts} PR(s) authored by a deleted account`);
   log(`${prs.length} merged PRs`);
   return prs.sort((a, b) => b.mergedAt.localeCompare(a.mergedAt));

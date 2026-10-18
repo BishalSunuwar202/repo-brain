@@ -39,12 +39,22 @@ Wall-clock time per command, measured 2026-10-17 on the shared container with
 | 2 | `impact fastify.js --limit 10` (fastify) | 0.53–0.56 s |
 | 3 | `fix --module .github/workflows --ceiling` (fastify) | 0.57–0.60 s |
 | 4 | `fix --module .github/workflows --budget 3` (fastify) | 0.54–0.58 s |
-| 5 | `fix --ceiling \| head -n 12` (fastify, whole repo) | 0.59–0.61 s |
-| 6 | `fix --ceiling \| head -n 11` (vite, whole repo) | 0.75–0.78 s |
+| 5 | `fix --ceiling \| head -n 11` (vite, whole repo) | 0.75–0.78 s |
+| 6 | `backtest .cache/repos/fastify/fastify --holdout 30 --pr-limit 300` | 1.21–1.51 s |
+| 7 | `repo_fix` over MCP, piped through `jq` (fastify, `.github/workflows`) | 0.53–0.74 s |
 
-No step stalls the video. Every step finishes in under 0.8 s, and most of that is
+No step stalls the video. Every step except the backtest finishes in under 0.8 s, and most of that is
 Node and tsx startup. Without the warm-up, the first command of a session takes
 about 0.3 s longer (risk took 0.86 s cold), so `demo.sh` warms up before step 1.
+
+⚠️ **Run the backtest once before you record.** Measured 2026-10-18, on the first run
+after `docker start repo-brain-db`, step 6 took **15.81 s** — one measurement, but
+a 10x blowup that would leave 16 seconds of dead air in a 25-second slot. Three
+consecutive runs after it: 1.38 s, 1.14 s, 1.12 s. Step 6 is the only step that
+*ingests* — it re-parses the fastify clone's git log and writes a fresh graph — so it
+is the only one that pays for a cold container and a cold file cache. The read-only
+steps were unaffected in that same cold run (step 1 took 0.557 s). `demo.sh`'s
+warm-up covers tsx, not this.
 
 **Avoid pnpm/pnpm on camera.** `fix --ceiling` there took **5.59 s** in a single run
 today (spec §16 measured 5.3 s), and its output runs to thousands of lines. If a
@@ -52,9 +62,22 @@ step ever needs a bigger repo than fastify, use vite, which takes under 0.8 s.
 
 ## Steps and narration
 
-Allow about 2:50 in total with `review` and `backtest`, or about 2:20 without them
-(see [Fallback](#fallback-if-review-or-backtest-is-not-ready)). Commands take under
-1 s each, so the narration sets the length.
+Allow about 3:00 in total. Two steps were dropped to get there: a separate
+`review <prNumber>` step (see step 6) and the whole-repo fastify `fix` that used to
+sit between steps 4 and 5.
+
+The whole-repo fastify step went rather than step 4, deliberately. Step 4 is where
+the min cut is shown to be *actionable* — it prints `projected at risk 0,
+bottleneck none` after you act on step 3's diagnosis — and that is the point of the
+project. The dropped step was the same shape as step 3 at a bigger N, and step 5
+(vite) still covers the whole-repo case while also showing both bottleneck types.
+
+Its figure (32 at risk, 31 reviews for 19 people, projected 1) is now **not on
+camera**. It remains in the README and `docs/submission.md`, so nothing on screen
+contradicts them — but do not narrate it in another step. Step 1 does print `32
+files`, which is the same 32 and is fine to say.
+
+Commands take under 2 s each, so the narration sets the length.
 
 ### 0:00 — 1. `risk` (about 25 s)
 
@@ -107,14 +130,7 @@ that achieves the projection)`.
 What to notice: `projected at risk 0`, `bottleneck none`. The cut's diagnosis was
 actionable, and acting on it closed the gap. This is still a projection.
 
-### 1:45 — 5. `fix --ceiling` on all of fastify (about 15 s)
-
-> "Across the whole repo: 32 files at risk, every one has a qualified reviewer, and
-> 31 reviews for 19 people bring the projection down to one."
-
-What to notice: the summary only. `head -n 12` cuts the 31-review list, so say that.
-
-### 2:00 — 6. `fix --ceiling` on vite (about 20 s)
+### 1:45 — 5. `fix --ceiling` on vite, whole repo (about 20 s)
 
 > "On vite, the same cut gives two different answers. 96 files are waiting on
 > reviewer bandwidth, which is a scheduling problem. 10 files have nobody who clears
@@ -124,20 +140,64 @@ What to notice: the two "left because" lines. Also `top 5 costs 62`: on vite the
 shortlist costs 62 files of projected coverage, and `--ceiling` prints that cost
 rather than hiding it. Give the numbers with their N (top 5) and budget (2).
 
-### 2:20 — 7. `review <prNumber>` (slot, about 10 s)
+### 2:05 — 6. `backtest`: is `review` any good? (about 25 s)
 
-Not built yet. `demo.sh` prints a SLOT marker. When it works, fill in the command in
-`demo.sh` step 7 and narrate who the tool suggests for a real merged PR. `review` is
-the baseline being measured, not the contribution.
+```bash
+npm run -s brain -- --repo fastify/fastify backtest .cache/repos/fastify/fastify --holdout 30 --pr-limit 300
+```
 
-### 2:30 — 8. `backtest` (slot, about 15 s)
+This is `review`'s only appearance on camera, and it appears measured. There is no
+separate `review <prNumber>` step. The demo graphs were ingested without `--prs`, so
+they hold no PR nodes and `review` would print nothing for any PR. Re-ingesting with
+`--prs` would move the relative `--since` window and every number quoted above.
+`backtest` builds its own throwaway `backtest:<uuid>` graph and deletes it, so the
+demo graph is untouched.
 
-Not built yet. When it works, show the **measured** hit-rate@1/@3 against both
-baselines (spec §12 D1). Say honestly that the trivial most-active baseline already
-covers most PRs (CLAUDE.md), which is why the headline is `fix` and not review
-precision. Quote only numbers the backtest printed.
+> "Repo Brain also recommends reviewers for a PR. That's the part other tools do, so
+> we measured it instead of demoing it. Thirty real fastify PRs were held out, and
+> history was cut at the first one so nothing leaks. `review` finds a real reviewer
+> in its top three 30% of the time. Ranking whoever reviews the most gets 43%.
+> Random gets 13%. So `review` loses to the trivial baseline, and we publish that.
+> It's why the headline is `fix`, not reviewer recommendation."
 
-### 2:45 — 9. FalkorDB Browser (about 15 s)
+About 14 `[backtest]`/`[prs]` progress lines print first, on stderr, and the table
+comes under them. They stay in, because they show the throwaway graph being built
+and the history being cut. They are not suppressed with `2>/dev/null`, which would
+also hide a real error mid-take. Wait for the table before speaking.
+
+What to notice: the three-row table and the closing line, "MEASURED on 30 held-out
+PRs, not a projection. review does NOT beat the trivial most-active baseline at
+k=3." Read that line aloud. Quote only what is on screen: fastify, 30 held out, cut
+at 2026-09-22T08:46:53Z. vite's numbers (README) are not on screen, so leave them out
+of the narration.
+
+### 2:30 — 7. The same `fix`, asked by an agent over MCP (about 15 s)
+
+This is the only on-camera evidence for the agent track, so keep it in. Timed at
+0.53–0.74 s (step 7 in the timings table):
+
+```bash
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"repo_fix","arguments":{"repo":"fastify/fastify","module":".github/workflows"}}}' \
+  | npm run mcp --silent | tail -n 1 | jq -r '.result.content[0].text' \
+  | jq -c '{atRiskBefore, atRiskAfter, atRiskAfterIsProjection, bottleneck, bottleneckReviewers, unserved, reviews: ([.assignments[].files[]] | length)}'
+```
+
+The two `jq` filters only make the reply legible on screen. Without them the reply
+is about 2 KB of escaped JSON. The server itself needs no `jq`.
+
+> "An agent gets the same answer. This is the MCP server, which exposes the four
+> commands as tools. An agent calls `repo_fix` and gets the same nine reviews,
+> the same four bottleneck reviewers, and the same one file left over. The JSON
+> carries its own warning, `atRiskAfterIsProjection: true`, because an agent never
+> sees the CLI's printed caveat."
+
+What to notice: the numbers match step 3 exactly (10 before, projected 1, 9
+reviews), and the `atRiskAfterIsProjection: true` flag. Every MCP tool takes a
+required `repo`, so an agent cannot get the unquotable fallback identities.
+
+### 2:45 — 8. FalkorDB Browser (about 15 s)
 
 Switch to the Browser window and run:
 
@@ -148,21 +208,28 @@ WHERE t.doa > 0.2 AND f.alive RETURN p, t, f
 
 That draws 5 people, 20 files and 32 edges, a picture you can read at a glance. One
 person holds 19 of the 32 edges and the other four hold 7, 4, 1 and 1 (counted
-2026-10-17). That is the graph behind step 3.
+2026-10-17). That is the graph behind steps 3 and 7.
 Close on the prior-art credit (CodeScene, Fritz et al. Degree-of-Knowledge,
 SofiaWL, RevFinder). The new thing is the assembly: max-flow/min-cut prescribing
 reviews on a knowledge graph.
 
-## Fallback if `review` or `backtest` is not ready
+## If a step fails on the day
 
-The demo lands without them, because `fix` is the headline and it works today.
+**First: is the container up?** Every step needs `repo-brain-db`; with it stopped,
+each command exits 1. The CLI names it — `cannot reach FalkorDB at
+redis://localhost:6379: connect ECONNREFUSED … Is the repo-brain-db container
+running?` — so a dead container is unmistakable rather than a bare `error:`.
 
-- Leave `slot` lines 7 and 8 in `demo.sh`, but **cut those frames in the edit**. Or
-  comment them out before recording so no SLOT marker reaches the video.
-- Go straight from step 6 to the Browser (step 9). Total runtime is then about 2:20.
+**Second: having just started it is not enough.** Run the whole script once after
+starting the container and throw that take away. The backtest's first run costs ~16 s
+(see the timings table); every run after it costs ~1.2 s.
+
+`backtest` needs the fastify clone at `.cache/repos/fastify/fastify` and the cached
+GitHub PR responses under `.cache/`. Without the cache it calls the GitHub API.
+
+- Rehearse with `DEMO_PAUSE=0 scripts/demo.sh`. If step 6 errors, cut it in the
+  edit rather than narrating numbers that are not on screen.
 - To recover the time, slow step 3 down. Spend the extra 20–30 s on the min-cut
   sentence, because that is what the video is for.
-- Don't put a backtest number on screen or in the narration until the command has
-  printed it. No estimates, no "early results".
-- If `backtest` lands but `review` doesn't (or the reverse), keep whichever works.
-  The order of steps 7 and 8 doesn't matter to the story.
+- Never put a backtest number in the narration that the command did not print in
+  that take. No estimates, no "earlier we measured".

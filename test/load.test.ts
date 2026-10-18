@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Graph } from "falkordb";
-import { RESULTSET_SIZE, graphName, underCap, writeBatched } from "../src/db/client.ts";
+import { RESULTSET_SIZE, connectionErrorMessage, graphName, underCap, writeBatched } from "../src/db/client.ts";
 import { buildRepoModel, type Commit } from "../src/ingest/gitlog.ts";
 import { buildLoadPlan, isMissingGraph, loadRepo } from "../src/ingest/load.ts";
 import { DDL, isAlreadyIndexed } from "../src/schema/ddl.ts";
@@ -57,15 +57,20 @@ test("load plan: node steps before edge steps; every statement is a batched UNWI
   assert.ok(!plan.some((s) => /LIMIT/.test(s.cypher)), "landmine 2: no LIMIT on writes");
 });
 
-test("load plan rows: lowercase login, emails array, module, alive, UTC timestamps", () => {
+test("load plan rows: lowercase login, no emails on the node, module, alive, UTC timestamps", () => {
   const plan = Object.fromEntries(buildLoadPlan(model, alive).map((s) => [s.label, s.rows]));
+  // No emails key: commit emails resolve the login at ingest and are never written
+  // to the node (hackathon rule 6 — no personal data in the graph).
   assert.deepEqual(plan.Person.find((p) => p.login === "alice"), {
     login: "alice",
     name: "alice",
-    emails: ["alice@x.io"],
     firstSeen: "2026-01-01T00:00:00.000Z",
     lastSeen: "2026-03-01T04:15:00.000Z", // +05:45 normalised to UTC
   });
+  assert.ok(
+    !buildLoadPlan(model, alive).some((s) => /emails/.test(s.cypher)),
+    "no load step may write an email address into the graph",
+  );
   assert.deepEqual(plan.File.find((f) => f.path === "pnpm-lock.yaml"), { path: "pnpm-lock.yaml", module: ".", alive: false });
   assert.deepEqual(plan.File.find((f) => f.path === "src/core/a.ts"), { path: "src/core/a.ts", module: "src/core", alive: true });
   assert.equal(plan.Commit.find((c) => c.sha === "c3")!.ts, "2026-03-01T04:15:00.000Z");
@@ -148,6 +153,25 @@ test("fresh load: a missing graph is fine, any other delete error surfaces", asy
   await assert.rejects(loadRepo(asGraph(down), [], { fresh: true }), /ECONNREFUSED/);
   assert.equal(down.queries.length, 0, "nothing written after a failed delete");
   assert.equal(isMissingGraph(new Error("ECONNREFUSED")), false);
+});
+
+// Found on 2026-10-18 with the container stopped: every command printed "error:" and
+// nothing else. The falkordb client reports a refused connection as an AggregateError
+// whose own `message` is empty, so the CLI had nothing to print. On recording day the
+// answer is almost always "docker is not running", so say that.
+test("a refused connection names the url and the container instead of printing nothing", () => {
+  const refused = new AggregateError([new Error("connect ECONNREFUSED 127.0.0.1:6379")]);
+  assert.equal(refused.message, "", "the premise: the client's own message is empty");
+
+  const msg = connectionErrorMessage(refused, "redis://localhost:6379");
+  assert.match(msg, /redis:\/\/localhost:6379/, "must name the url it tried");
+  assert.match(msg, /repo-brain-db/, "must name the container to start");
+  assert.match(msg, /ECONNREFUSED/, "must keep the underlying reason");
+});
+
+test("a connection error that does have a message keeps it", () => {
+  assert.match(connectionErrorMessage(new Error("WRONGPASS invalid password"), "redis://x"), /WRONGPASS invalid password/);
+  assert.match(connectionErrorMessage("plain string", "redis://x"), /plain string/);
 });
 
 test("underCap: a result at FalkorDB's RESULTSET_SIZE is treated as truncated", () => {

@@ -15,8 +15,26 @@ export function graphName(repo: string): string {
   return `repo:${owner}-${name}`;
 }
 
+/**
+ * A readable message for a connection failure.
+ *
+ * The client reports a refused connection as an AggregateError whose own `message` is
+ * empty, so `console.error(`error: ${err.message}`)` printed "error:" and nothing
+ * else — the least helpful possible output for the one failure that happens most,
+ * which is that the container is not running.
+ */
+export function connectionErrorMessage(err: unknown, url: string): string {
+  const inner = err instanceof AggregateError ? err.errors.map((e) => String((e as Error)?.message ?? e)).join("; ") : "";
+  const reason = (err instanceof Error ? err.message : String(err)) || inner || "no reason reported";
+  return `cannot reach FalkorDB at ${url}: ${reason}. Is the repo-brain-db container running? (docker start repo-brain-db)`;
+}
+
 export async function connect(url = DEFAULT_URL): Promise<FalkorDB> {
-  return FalkorDB.connect({ url });
+  try {
+    return await FalkorDB.connect({ url });
+  } catch (err) {
+    throw new Error(connectionErrorMessage(err, url), { cause: err });
+  }
 }
 
 export async function openRepoGraph(db: FalkorDB, repo: string): Promise<Graph> {

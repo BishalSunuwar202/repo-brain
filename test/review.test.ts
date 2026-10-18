@@ -5,9 +5,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { DEFAULT_K, REVIEW_CYPHER, checkK, rankCandidates, type ReviewRow } from "../src/tools/review.ts";
+import { DEFAULT_K, REVIEW_CYPHER, checkK, mergeLegs, rankCandidates, type ReviewCandidate } from "../src/tools/review.ts";
 
-const row = (login: string, direct: number, co = 0): ReviewRow => ({ login, direct, co, score: direct + co });
+const row = (login: string, direct: number, co = 0): ReviewCandidate => ({ login, direct, co, score: direct + co });
 
 test("rankCandidates orders by score descending", () => {
   const got = rankCandidates([row("alice", 0.2), row("bob", 0.9), row("carol", 0.5)], 3);
@@ -62,4 +62,40 @@ test("REVIEW_CYPHER excludes files the PR itself modified from the co-change leg
 
 test("REVIEW_CYPHER excludes the PR author", () => {
   assert.match(REVIEW_CYPHER, /WHERE NOT \(pr\)-\[:AUTHORED_BY\]->\(p\)/);
+});
+
+test("mergeLegs adds each person's direct and co-change rows into one candidate", () => {
+  // REVIEW_CYPHER returns one row per person per leg; the sum happens here, not in
+  // Cypher, so no WITH-carried value is ever added to a fresh aggregate.
+  const got = mergeLegs([
+    { login: "bob", direct: 0.7, co: 0 },
+    { login: "carol", direct: 0.2, co: 0 },
+    { login: "bob", direct: 0, co: 0.3 },
+  ]);
+  assert.deepEqual(
+    got.sort((a, b) => a.login.localeCompare(b.login)),
+    [
+      { login: "bob", direct: 0.7, co: 0.3, score: 1 },
+      { login: "carol", direct: 0.2, co: 0, score: 0.2 },
+    ],
+  );
+});
+
+test("mergeLegs keeps a person nominated by co-change alone", () => {
+  // The point of the co-change leg: someone who only ever touched a tightly
+  // coupled neighbour is a candidate, not just a tie-breaker.
+  assert.deepEqual(mergeLegs([{ login: "dave", direct: 0, co: 0.2 }]), [{ login: "dave", direct: 0, co: 0.2, score: 0.2 }]);
+});
+
+test("REVIEW_CYPHER nominates from the co-change leg with UNION ALL", () => {
+  // Plain UNION would deduplicate rows; ALL keeps every per-leg row for mergeLegs.
+  assert.match(REVIEW_CYPHER, /\nUNION ALL\n/);
+  // The co-change leg is its own MATCH, so a co-change-only person reaches the result.
+  assert.match(REVIEW_CYPHER, /UNION ALL\nMATCH \(pr:PR \{number: \$number\}\)-\[:MODIFIED\]->\(:File\)-\[c:CO_CHANGED\]-/);
+});
+
+test("REVIEW_CYPHER excludes the PR author on both legs", () => {
+  // Once co-change nominates, the author would otherwise come back through a
+  // neighbour of their own change.
+  assert.equal(REVIEW_CYPHER.match(/NOT \(pr\)-\[:AUTHORED_BY\]->\(p\)/g)?.length, 2);
 });

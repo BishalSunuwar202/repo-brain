@@ -20,7 +20,7 @@ test("isBot: git authors, PR authors and reviewers", () => {
   for (const b of bots) assert.equal(isBot(b), true, JSON.stringify(b));
   const humans = [
     { name: "Alice Talbot", email: "alice@x.io" },
-    { login: "mcollina", typename: "User" },
+    { login: "alice", typename: "User" },
     { name: "Renée Abbot", email: "renee@x.io" },
   ];
   for (const h of humans) assert.equal(isBot(h), false, JSON.stringify(h));
@@ -74,7 +74,7 @@ test("D13: botReason says why, strongest signal first", () => {
   assert.equal(botReason({ login: "renovate" }), "known");
   assert.equal(botReason({ login: "eslintbot", typename: "User" }), "login-suffix");
   assert.equal(botReason({ login: "talbot" }), "login-suffix", "known false positive — visible in the audit");
-  assert.equal(botReason({ login: "mcollina", typename: "User" }), null);
+  assert.equal(botReason({ login: "alice", typename: "User" }), null);
 });
 
 test("isCoChangeExcluded: basename globs anywhere, directory globs at any depth", () => {

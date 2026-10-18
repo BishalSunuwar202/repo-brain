@@ -29,13 +29,9 @@ step() {
   pause
 }
 
-# slot "name" : a step that is not built yet. Prints a marker instead of output.
-slot() {
-  clear || true
-  printf '\e[1;33m# SLOT: %s (not built yet; skipped, see docs/demo-script.md fallback)\e[0m\n' "$1"
-  pause
-}
-
+# Needs the container: every step fails otherwise. The CLI now names the container in
+# that error rather than printing a bare "error:" (see connectionErrorMessage).
+#
 # Warm tsx's compile cache so step 1 is as fast as the rest (first run ~0.3s slower).
 npm run -s brain -- --help >/dev/null
 
@@ -55,24 +51,30 @@ step "fix: the fewest reviews that de-risk .github/workflows" \
 step "The cut said: budget. Raise it to 3." \
   'npm run -s brain -- --repo fastify/fastify fix --module .github/workflows --budget 3'
 
-# 5. Whole repo, summary only (the full prescription is 31 reviews long).
-step "fix across all of fastify" \
-  'npm run -s brain -- --repo fastify/fastify fix --ceiling | head -n 12'
-
-# 6. Contrast: vite has BOTH bottlenecks, bandwidth and nobody-eligible.
+# 5. Whole repo, and a contrast: vite has BOTH bottlenecks, bandwidth and nobody-eligible.
 step "vite: two different answers from one cut" \
   'npm run -s brain -- --repo vitejs/vite fix --ceiling | head -n 11'
 
-# 7. review: who should review PR <n>. Fill in once src/tools/review.ts is wired.
-# step "Who should review this PR?" 'npm run -s brain -- --repo fastify/fastify review <prNumber>'
-slot "review <prNumber>"
+# 6. review appears as its MEASURED backtest, not a single PR: the demo graph has no PR nodes.
+# backtest builds its own throwaway graph from cached PRs and a fixed seed (fastify, 30 held out:
+# review 13%/30%, most-active 17%/43%, random 7%/13%); it leaves repo:fastify-fastify untouched.
+step "Is review any good? Measured on 30 held-out PRs" \
+  'npm run -s brain -- --repo fastify/fastify backtest .cache/repos/fastify/fastify --holdout 30 --pr-limit 300'
 
-# 8. backtest: hit-rate@1/@3 vs the two baselines. Fill in once it is wired.
-# step "Is review any good? Measured on held-out PRs" 'npm run -s brain -- --repo fastify/fastify backtest'
-slot "backtest"
+# 7. The same fix answer, asked by an agent over the MCP server. The jq filters only make the
+# reply legible; the numbers must match step 3 (10 before, projected 1, 9 reviews).
+# read, not $(cat <<EOF): bash 3.2 drops the backslash-newlines inside $( ).
+read -r -d '' MCP_FIX <<'EOF' || true
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"repo_fix","arguments":{"repo":"fastify/fastify","module":".github/workflows"}}}' \
+  | npm run mcp --silent | tail -n 1 | jq -r '.result.content[0].text' \
+  | jq -c '{atRiskBefore, atRiskAfter, atRiskAfterIsProjection, bottleneck, bottleneckReviewers, unserved, reviews: ([.assignments[].files[]] | length)}'
+EOF
+step "An agent asks the same question over MCP" "$MCP_FIX"
 
-# 9. FalkorDB Browser (manual): open http://localhost:3100, graph repo:fastify-fastify, run:
+# 8. FalkorDB Browser (manual): open http://localhost:3100, graph repo:fastify-fastify, run:
 #   MATCH (p:Person)-[t:TOUCHED]->(f:File {module: '.github/workflows'})
 #   WHERE t.doa > 0.2 AND f.alive RETURN p, t, f
 clear || true
-printf '\e[1;36m# Now: FalkorDB Browser at http://localhost:3100 (query in this script, step 9)\e[0m\n'
+printf '\e[1;36m# Now: FalkorDB Browser at http://localhost:3100 (query in this script, step 8)\e[0m\n'

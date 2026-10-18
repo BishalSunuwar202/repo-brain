@@ -309,10 +309,29 @@ the backtest number, or the video.
 
 ## 10. Tracks
 
-One project, three tracks (allowed and encouraged by rule 3):
-- **01 Investigation & Risk** — `risk` + `fix` are literally risk analysis
-- **02 Agentic AI** — MCP server, agent calls the four tools, one graph per repo
-- **03 GraphRAG SDK** — only if Block 5 finishes early; do not force it
+**CORRECTED 2026-10-17 against the live rules page** (wemakedevs.org/hackathons/falkordb/rules,
+read by two sessions independently). The track names below were wrong — they are from
+an earlier edition of the event and appear nowhere in the current rules. The real
+tracks, per rule 5 ("You may enter any or all of them, and you must name every track
+you are entering when you submit"):
+
+- **Company Brain** — the closest fit: one graph per repo, answering questions about
+  an organisation's own codebase.
+- **Agents That Act on Connected Data** — the MCP server (`npm run mcp`) exposing the
+  four tools over a graph. Note the honest limit: the agent receives a prescription,
+  it does not assign reviewers itself.
+- **Agent Memory and Coordination** — **not entered.** Nothing in this project is
+  agent memory; claiming it would be an overclaim.
+
+Rule 7 gives the window as Oct 15 12:01 AM IST → **Oct 18 11:59 PM IST**. §8's
+18:00 IST hard stop stays as the self-imposed buffer, not the real deadline.
+
+Rule 10 requires the README to carry the graph data model and the Cypher queries or
+graph algorithms the product depends on. Both are in README.md, and
+test/readme-cypher.test.ts asserts the quoted queries still match the constants.
+
+### Superseded (wrong, kept so the error is traceable)
+- ~~01 Investigation & Risk~~ / ~~02 Agentic AI~~ / ~~03 GraphRAG SDK~~
 
 ## 11. Open risks
 
@@ -429,7 +448,7 @@ headline knowledge risk is a lockfile is a disaster. Apply the same exclusion to
 factual).
 
 **D15 — `--repo owner/name` is REQUIRED for any run that produces a reported number.**
-The local fallback cannot merge `bishalsunuwar202` with `bishalsunuwar24`, and worse,
+The local fallback cannot merge `jsmith` with `john.smith`, and worse,
 it can wrongly *merge* two different humans (`john@a.com` + `john@b.com` → `john`).
 Only the GitHub mapping is trustworthy. Without `--repo`, print a loud warning that
 the output is not suitable for reporting. Never quote a number from a fallback run.
