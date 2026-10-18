@@ -121,10 +121,24 @@ visibility:
 
 - [x] Test fixtures use fake identities only (`10000001`, `example.com`): never the
       owner's real GitHub ID, username or email.
-- [ ] Confirm `.cache/` and `.falkordata/` are still gitignored and untracked
+- [x] Confirm `.cache/` and `.falkordata/` are still gitignored and untracked
       (`.cache/identity/` holds email→login mappings fetched from GitHub).
-- [ ] Check no analysed repo's contributor data is committed in fixtures or
-      example output.
+      Verified 2026-10-18: both in `.gitignore`, `git ls-files` lists nothing under
+      either.
+- [x] No analysed repo's contributor data in **fixtures**: the real maintainer logins
+      that had leaked into `test/{fix,tools,rules}.test.ts` are renamed to the
+      synthetic `alice`/`bob`/`carol`/`zoe` the rest of the suite uses. Synthetic
+      facts should not carry real names.
+- [ ] **Owner's call:** the README's **example output** names real maintainers
+      (`mcollina`, `eomm`, `climba03003`, `uzlopak`, `fdawgs`, and vite logins) in
+      `risk` and `fix` output. It is real, public, git-derived data and removing it
+      guts the demo — but it is a claim about named people's bus factor.
+- [ ] **Owner's call:** going public exposes the commit history. Two author
+      identities appear in it — a personal gmail address and the GitHub
+      `<id>+<user>@users.noreply` form — and the numeric id also survives in 5
+      commits' diffs, including the ones that scrubbed it from the tree. Inspect with
+      `git log --format='%an <%ae>' | sort -u`; not reproduced here, because this file
+      goes public too.
 
 ## Status (keep this current)
 
@@ -135,4 +149,7 @@ visibility:
       (measured: fastify, 30 held out, 13%/30% vs the most-active baseline's 17%/43%)
 - [x] MCP server — stdio JSON-RPC, four tools, no SDK dependency (`npm run mcp`)
 - [x] README with the measured number and both baselines beside it
+- [x] `docs/walkthrough.md` — the rule 12 study sheet (model, cut derivation, backtest)
+- [ ] Rule 11 AI-disclosure paragraph in `docs/submission.md` — `TODO(owner)`, a
+      factual claim about a person, so the owner writes it
 - [ ] Demo video; make public; submit
