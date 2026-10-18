@@ -1,5 +1,5 @@
-// Backtest (spec §6, §12 D1/D2/D11). The scoring helpers are real and tested; the
-// driver is a STUB until review() and github.ts exist.
+// Backtest (spec §6, §12 D1/D2/D11). Measured, not a stub: `brain backtest` runs this
+// against a real repo and the README's hit-rates are its output.
 //
 // 1. Ingest the repo excluding the last 30 merged PRs (bot-authored PRs excluded
 //    from the holdout; doa computed with asOf = the oldest held-out PR's mergedAt).
