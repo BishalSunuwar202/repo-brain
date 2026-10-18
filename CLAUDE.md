@@ -164,4 +164,7 @@ visibility:
       ffmpeg/asciinema/agg/ImageMagick/Pillow), and the owner chose to screen-record
       with narration rather than have one rendered. Run `scripts/preflight.sh` first,
       and open `localhost:3100` by hand — Chrome may refuse it (see demo-script.md).
+- [ ] **Merge PR #8 first.** The recording materials (`docs/teleprompter.md`,
+      `scripts/preflight.sh`, the demo fallbacks, the confirmed tracks) sit on
+      `feat/risk-calibration`, not on `main` — and `main` is what going public shows.
 - [ ] Make public; submit (window closes Oct 18 2026 11:59 PM IST)
