@@ -45,7 +45,8 @@ npm run -s brain -- --repo fastify/fastify impact fastify.js --limit 10
 The graph also knows what moves together.
 
 Touch fastify.js and these files change with it,
-including two docs pages a human reviewer would forget.
+including a docs page at 63% — ranked above lib/route.js —
+that a human reviewer would forget.
 
 ---
 
