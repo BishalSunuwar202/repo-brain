@@ -42,7 +42,7 @@ test("R4: daysSinceOther is the latest OTHER touch, null when no one else touche
 
 test("R2: risk rows carry a kind; --kind filters; segments count at-risk over active files", () => {
   const rows = presentRisk(
-    [raw(".github/workflows/ci.yml", "fdawgs"), raw(".gitignore", "fdawgs"), raw("test/a.test.js", "eomm"), raw("lib/x.js", "eomm")],
+    [raw(".github/workflows/ci.yml", "carol"), raw(".gitignore", "carol"), raw("test/a.test.js", "bob"), raw("lib/x.js", "bob")],
     { exclude: isCoChangeExcluded, asOf: ASOF },
   );
   assert.deepEqual(rows.map((r) => r.kind), ["ci", "ci", "test", "source"]);
@@ -51,8 +51,8 @@ test("R2: risk rows carry a kind; --kind filters; segments count at-risk over ac
 
   const active = [".github/workflows/ci.yml", ".gitignore", "test/a.test.js", "lib/x.js", "lib/y.js", "lib/z.js", "pnpm-lock.yaml"];
   const seg = Object.fromEntries(segmentRisk(rows, active, isCoChangeExcluded).map((s) => [s.kind, s]));
-  assert.deepEqual(seg.ci, { kind: "ci", active: 2, atRisk: 2, topHolder: { login: "fdawgs", files: 2 } });
-  assert.deepEqual(seg.source, { kind: "source", active: 3, atRisk: 1, topHolder: { login: "eomm", files: 1 } });
+  assert.deepEqual(seg.ci, { kind: "ci", active: 2, atRisk: 2, topHolder: { login: "carol", files: 2 } });
+  assert.deepEqual(seg.source, { kind: "source", active: 3, atRisk: 1, topHolder: { login: "bob", files: 1 } });
   assert.deepEqual(seg.docs, { kind: "docs", active: 0, atRisk: 0, topHolder: null });
 });
 

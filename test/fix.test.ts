@@ -47,10 +47,10 @@ test("classifyBottleneck: an unserved file whose candidates are all saturated is
     { from: SOURCE, to: fileNode("src/a.ts"), cap: 1, flow: 1 },
     { from: SOURCE, to: fileNode("src/b.ts"), cap: 1, flow: 1 },
     { from: SOURCE, to: fileNode("src/blocked.ts"), cap: 1, flow: 0 },
-    { from: fileNode("src/a.ts"), to: reviewerNode("eomm"), cap: 1, flow: 1 },
-    { from: fileNode("src/b.ts"), to: reviewerNode("eomm"), cap: 1, flow: 1 },
-    { from: fileNode("src/blocked.ts"), to: reviewerNode("eomm"), cap: 1, flow: 0 },
-    { from: reviewerNode("eomm"), to: SINK, cap: 2, flow: 2 },
+    { from: fileNode("src/a.ts"), to: reviewerNode("bob"), cap: 1, flow: 1 },
+    { from: fileNode("src/b.ts"), to: reviewerNode("bob"), cap: 1, flow: 1 },
+    { from: fileNode("src/blocked.ts"), to: reviewerNode("bob"), cap: 1, flow: 0 },
+    { from: reviewerNode("bob"), to: SINK, cap: 2, flow: 2 },
   ];
   assert.equal(classifyBottleneck(edges), "bandwidth");
 });
@@ -91,10 +91,10 @@ test("classifyBottleneck: a mixed shortfall reports whichever explains more file
 test("bottleneckReviewers: the cut names whose budget is binding, in order", () => {
   const cut: FlowEdge[] = [
     { from: SOURCE, to: fileNode("src/a.ts"), cap: 1, flow: 1 },
-    { from: reviewerNode("mcollina"), to: SINK, cap: 2, flow: 2 },
-    { from: reviewerNode("eomm"), to: SINK, cap: 2, flow: 2 },
+    { from: reviewerNode("zoe"), to: SINK, cap: 2, flow: 2 },
+    { from: reviewerNode("bob"), to: SINK, cap: 2, flow: 2 },
   ];
-  assert.deepEqual(bottleneckReviewers(cut), ["eomm", "mcollina"]);
+  assert.deepEqual(bottleneckReviewers(cut), ["bob", "zoe"]);
   assert.deepEqual(bottleneckReviewers([]), []);
 });
 
