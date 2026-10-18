@@ -44,6 +44,14 @@ Provisional values, to be tuned on the backtest: θ = 0.2 (`--theta`, §15 R3) a
 - Leave docker to the user: the container is already up and shared.
 - Ingested graphs: fastify/fastify, nodejs/undici, vitejs/vite, pnpm/pnpm,
   FalkorDB/FalkorDB.
+- **Those graphs predate `6da8e1e`** (the commit that stopped writing commit emails
+  onto Person nodes), so they still carried `p.emails` — 181 nodes on fastify, 380 on
+  vite. Stripped 2026-10-18 with `MATCH (p:Person) SET p.emails = NULL`, verified 0
+  remaining in every graph. The key still appears in the Browser's PROPERTY KEYS list,
+  because FalkorDB keeps a property key in the graph's schema after its last value is
+  removed; no node carries a value. Re-ingesting also clears the key — but the ingest
+  window is relative (`--since "2 years ago"`), so re-ingesting moves the published
+  numbers. Do not re-ingest the demo graphs without re-measuring everything.
 - Clones for analysis live in `.cache/repos/<name>/`, one fresh empty dir each,
   `git clone --single-branch` (no blobless clone). They are untrusted checkouts: the
   only permitted interaction is `git log` with the path passed as an argument — no
