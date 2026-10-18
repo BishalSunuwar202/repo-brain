@@ -6,8 +6,10 @@ OPEN BEFORE SUBMITTING (delete this block once settled):
   names "Agents That Act on Connected Data", "Agent Memory and Coordination" and
   "Company Brain", and allows entering any or all (spec §10, corrected). The choice
   below is a recommendation for the owner to confirm.
-- The AI disclosure (rule 11) is the owner's to write. It is a statement about the
-  owner's own work, and rule 13 makes its accuracy matter.
+- The AI disclosure (rule 11) is DRAFTED, at the owner's request, from claims the
+  repository and the session record support. It is still a statement about the
+  owner's own work and rule 13 makes its accuracy matter, so read it and strike
+  anything that is not true before submitting.
 - Window closes Oct 18 2026, 11:59 PM IST (rule 7).
 -->
 
@@ -273,7 +275,44 @@ server, run `npm run mcp` (JSON-RPC 2.0 over stdio).
 
 ## AI assistance (rule 11)
 
-<!-- OWNER WRITES THIS. Say which AI tools were used and what you did yourself.
-     Do not submit this placeholder. -->
+<!-- DRAFTED BY THE ASSISTANT AT THE OWNER'S REQUEST, 2026-10-18. Every claim below
+     is one the repository or the session record supports. Read it and strike
+     anything you do not recognise as true before submitting: rule 13 makes its
+     accuracy consequential, and you are the one signing it. -->
 
-TODO(owner): AI-assistance disclosure.
+**This project was built with heavy AI assistance, and the code was written by an AI
+assistant.** Claude Code (Claude Opus 5) wrote the implementation, the tests, the
+design spec under `docs/superpowers/specs/`, the README and this document, across
+three coordinated sessions sharing one working tree. There is no version of this
+disclosure in which the assistant's share is small, and saying otherwise would be
+the kind of claim this project spent its effort avoiding.
+
+What is mine to name is the direction. The scope, the sequencing against a
+three-day deadline, and the division of work across those sessions were set by me,
+as were the decisions to merge each round, to cut the demo down to length, and to
+keep the repository private until it was ready. The constraints the build was held
+to are recorded in `CLAUDE.md`, and they are visible in the result rather than only
+stated:
+
+- **No number is reported unless it was measured.** `fix`'s "after" figure is
+  labelled a projection everywhere it appears — in the CLI output, inside the MCP
+  payload's own JSON, and in the README — because it is `atRiskBefore − maxFlow` and
+  nothing re-checks the graph afterwards.
+- **A negative result stays published.** `review` loses to a trivial
+  most-active-reviewer baseline on both repositories measured, 13%/30% against
+  17%/43% on fastify and 64%/79% against 71%/100% on vite. Dropping the baseline, or
+  the evaluation, and leading with `fix` alone would have been easy and would have
+  read better. The measurement is in the README, in this document, and runs live on
+  camera in the demo.
+- **Prior art is credited** — CodeScene, Fritz et al.'s Degree-of-Knowledge, SofiaWL,
+  RevFinder. The claim made here is the assembly, not the components.
+- **Rule 6 was enforced on the data, not just acknowledged.** Commit email addresses
+  resolve author identities during ingest and are dropped before loading; no email
+  reaches the graph, and a test fails if a load step tries to write one.
+
+`docs/walkthrough.md` sets out the graph model, the degree-of-authorship formula, the
+flow network's capacities, how the minimum cut is derived in TypeScript from
+`algo.maxFlow`'s output (the procedure returns flows and never the cut), how the
+backtest closes leakage with a strict cutoff and withheld review edges, and the seven
+limitations this project does not hide. It exists so the system can be explained
+rather than only demonstrated, which is what rule 12 asks for.
