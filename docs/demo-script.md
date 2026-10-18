@@ -220,6 +220,14 @@ demo graphs, the fastify clone and the PR cache, pays the backtest's cold-start 
 fails if a second backtest run takes 3 s or more, and prints the numbers each step
 should show.
 
+**Step 8's Browser may not open in Chrome.** Found 2026-10-18: the Browser serves
+fine (`curl http://localhost:3100/` returns 200) but Chrome rendered an error page.
+The response carries `Strict-Transport-Security: max-age=63072000` on a plain-HTTP
+localhost origin, so Chrome tries `https://localhost:3100`, which speaks no TLS.
+**Open it manually before recording.** If it errors, use Firefox or Safari, or clear
+the entry at `chrome://net-internals/#hsts`. `preflight.sh` cannot catch this — it
+checks the database, not the browser.
+
 **First: is the container up?** Every step needs `repo-brain-db`; with it stopped,
 each command exits 1. The CLI names it — `cannot reach FalkorDB at
 redis://localhost:6379: connect ECONNREFUSED … Is the repo-brain-db container
