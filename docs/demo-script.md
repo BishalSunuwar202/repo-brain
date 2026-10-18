@@ -39,10 +39,9 @@ Wall-clock time per command, measured 2026-10-17 on the shared container with
 | 2 | `impact fastify.js --limit 10` (fastify) | 0.53–0.56 s |
 | 3 | `fix --module .github/workflows --ceiling` (fastify) | 0.57–0.60 s |
 | 4 | `fix --module .github/workflows --budget 3` (fastify) | 0.54–0.58 s |
-| 5 | `fix --ceiling \| head -n 12` (fastify, whole repo) | 0.59–0.61 s |
-| 6 | `fix --ceiling \| head -n 11` (vite, whole repo) | 0.75–0.78 s |
-| 7 | `backtest .cache/repos/fastify/fastify --holdout 30 --pr-limit 300` | 1.21–1.51 s |
-| 8 | `repo_fix` over MCP, piped through `jq` (fastify, `.github/workflows`) | 0.53–0.74 s |
+| 5 | `fix --ceiling \| head -n 11` (vite, whole repo) | 0.75–0.78 s |
+| 6 | `backtest .cache/repos/fastify/fastify --holdout 30 --pr-limit 300` | 1.21–1.51 s |
+| 7 | `repo_fix` over MCP, piped through `jq` (fastify, `.github/workflows`) | 0.53–0.74 s |
 
 No step stalls the video. Every step except the backtest finishes in under 0.8 s, and most of that is
 Node and tsx startup. Without the warm-up, the first command of a session takes
@@ -54,8 +53,21 @@ step ever needs a bigger repo than fastify, use vite, which takes under 0.8 s.
 
 ## Steps and narration
 
-Allow about 3:05 in total. That is just over the 3-minute target. The MCP step (step
-8) adds 15 s, and dropping a separate `review` step (see step 7) took back 10 s.
+Allow about 3:00 in total. Two steps were dropped to get there: a separate
+`review <prNumber>` step (see step 6) and the whole-repo fastify `fix` that used to
+sit between steps 4 and 5.
+
+The whole-repo fastify step went rather than step 4, deliberately. Step 4 is where
+the min cut is shown to be *actionable* — it prints `projected at risk 0,
+bottleneck none` after you act on step 3's diagnosis — and that is the point of the
+project. The dropped step was the same shape as step 3 at a bigger N, and step 5
+(vite) still covers the whole-repo case while also showing both bottleneck types.
+
+Its figure (32 at risk, 31 reviews for 19 people, projected 1) is now **not on
+camera**. It remains in the README and `docs/submission.md`, so nothing on screen
+contradicts them — but do not narrate it in another step. Step 1 does print `32
+files`, which is the same 32 and is fine to say.
+
 Commands take under 2 s each, so the narration sets the length.
 
 ### 0:00 — 1. `risk` (about 25 s)
@@ -109,14 +121,7 @@ that achieves the projection)`.
 What to notice: `projected at risk 0`, `bottleneck none`. The cut's diagnosis was
 actionable, and acting on it closed the gap. This is still a projection.
 
-### 1:45 — 5. `fix --ceiling` on all of fastify (about 15 s)
-
-> "Across the whole repo: 32 files at risk, every one has a qualified reviewer, and
-> 31 reviews for 19 people bring the projection down to one."
-
-What to notice: the summary only. `head -n 12` cuts the 31-review list, so say that.
-
-### 2:00 — 6. `fix --ceiling` on vite (about 20 s)
+### 1:45 — 5. `fix --ceiling` on vite, whole repo (about 20 s)
 
 > "On vite, the same cut gives two different answers. 96 files are waiting on
 > reviewer bandwidth, which is a scheduling problem. 10 files have nobody who clears
@@ -126,7 +131,7 @@ What to notice: the two "left because" lines. Also `top 5 costs 62`: on vite the
 shortlist costs 62 files of projected coverage, and `--ceiling` prints that cost
 rather than hiding it. Give the numbers with their N (top 5) and budget (2).
 
-### 2:20 — 7. `backtest`: is `review` any good? (about 25 s)
+### 2:05 — 6. `backtest`: is `review` any good? (about 25 s)
 
 ```bash
 npm run -s brain -- --repo fastify/fastify backtest .cache/repos/fastify/fastify --holdout 30 --pr-limit 300
@@ -157,10 +162,10 @@ k=3." Read that line aloud. Quote only what is on screen: fastify, 30 held out, 
 at 2026-09-22T08:46:53Z. vite's numbers (README) are not on screen, so leave them out
 of the narration.
 
-### 2:45 — 8. The same `fix`, asked by an agent over MCP (about 15 s)
+### 2:30 — 7. The same `fix`, asked by an agent over MCP (about 15 s)
 
-This is the only on-camera evidence for the agent track, so keep it in. Step 9 was
-timed at 0.53–0.74 s (step 8 row in the timings table):
+This is the only on-camera evidence for the agent track, so keep it in. Timed at
+0.53–0.74 s (step 7 in the timings table):
 
 ```bash
 printf '%s\n' \
@@ -183,7 +188,7 @@ What to notice: the numbers match step 3 exactly (10 before, projected 1, 9
 reviews), and the `atRiskAfterIsProjection: true` flag. Every MCP tool takes a
 required `repo`, so an agent cannot get the unquotable fallback identities.
 
-### 3:00 — 9. FalkorDB Browser (about 15 s)
+### 2:45 — 8. FalkorDB Browser (about 15 s)
 
 Switch to the Browser window and run:
 
@@ -194,17 +199,23 @@ WHERE t.doa > 0.2 AND f.alive RETURN p, t, f
 
 That draws 5 people, 20 files and 32 edges, a picture you can read at a glance. One
 person holds 19 of the 32 edges and the other four hold 7, 4, 1 and 1 (counted
-2026-10-17). That is the graph behind steps 3 and 8.
+2026-10-17). That is the graph behind steps 3 and 7.
 Close on the prior-art credit (CodeScene, Fritz et al. Degree-of-Knowledge,
 SofiaWL, RevFinder). The new thing is the assembly: max-flow/min-cut prescribing
 reviews on a knowledge graph.
 
-## If the backtest step fails on the day
+## If a step fails on the day
+
+**First: is the container up?** Every step needs `repo-brain-db`; with it stopped,
+each command exits 1. The CLI names it — `cannot reach FalkorDB at
+redis://localhost:6379: connect ECONNREFUSED … Is the repo-brain-db container
+running?` — so a dead container is unmistakable rather than a bare `error:`. Start it
+and rehearse once before recording.
 
 `backtest` needs the fastify clone at `.cache/repos/fastify/fastify` and the cached
 GitHub PR responses under `.cache/`. Without the cache it calls the GitHub API.
 
-- Rehearse with `DEMO_PAUSE=0 scripts/demo.sh`. If step 7 errors, cut it in the
+- Rehearse with `DEMO_PAUSE=0 scripts/demo.sh`. If step 6 errors, cut it in the
   edit rather than narrating numbers that are not on screen.
 - To recover the time, slow step 3 down. Spend the extra 20–30 s on the min-cut
   sentence, because that is what the video is for.
