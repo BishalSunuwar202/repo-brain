@@ -228,6 +228,21 @@ localhost origin, so Chrome tries `https://localhost:3100`, which speaks no TLS.
 the entry at `chrome://net-internals/#hsts`. `preflight.sh` cannot catch this — it
 checks the database, not the browser.
 
+**If the Browser will not open at all, step 8 still has a terminal fallback.** The
+same query, against the same graph, without the picture:
+
+```sh
+docker exec repo-brain-db redis-cli GRAPH.QUERY "repo:fastify-fastify" \
+  "MATCH (p:Person)-[t:TOUCHED]->(f:File {module: '.github/workflows'})
+   WHERE t.doa > 0.2 AND f.alive
+   RETURN p.login AS person, count(t) AS files ORDER BY files DESC"
+```
+
+Verified 2026-10-18: 19 / 7 / 4 / 1 / 1 files across the five people, which is the
+32 edges of the drawn subgraph read as a table. The narration survives — one person
+holds 19 of the 32 — but say "five people, twenty files" only if the count query is
+the one on screen.
+
 **First: is the container up?** Every step needs `repo-brain-db`; with it stopped,
 each command exits 1. The CLI names it — `cannot reach FalkorDB at
 redis://localhost:6379: connect ECONNREFUSED … Is the repo-brain-db container
