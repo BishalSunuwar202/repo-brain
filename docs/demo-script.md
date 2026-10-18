@@ -47,6 +47,15 @@ No step stalls the video. Every step except the backtest finishes in under 0.8 s
 Node and tsx startup. Without the warm-up, the first command of a session takes
 about 0.3 s longer (risk took 0.86 s cold), so `demo.sh` warms up before step 1.
 
+⚠️ **Run the backtest once before you record.** Measured 2026-10-18, on the first run
+after `docker start repo-brain-db`, step 6 took **15.81 s** — one measurement, but
+a 10x blowup that would leave 16 seconds of dead air in a 25-second slot. Three
+consecutive runs after it: 1.38 s, 1.14 s, 1.12 s. Step 6 is the only step that
+*ingests* — it re-parses the fastify clone's git log and writes a fresh graph — so it
+is the only one that pays for a cold container and a cold file cache. The read-only
+steps were unaffected in that same cold run (step 1 took 0.557 s). `demo.sh`'s
+warm-up covers tsx, not this.
+
 **Avoid pnpm/pnpm on camera.** `fix --ceiling` there took **5.59 s** in a single run
 today (spec §16 measured 5.3 s), and its output runs to thousands of lines. If a
 step ever needs a bigger repo than fastify, use vite, which takes under 0.8 s.
@@ -209,8 +218,11 @@ reviews on a knowledge graph.
 **First: is the container up?** Every step needs `repo-brain-db`; with it stopped,
 each command exits 1. The CLI names it — `cannot reach FalkorDB at
 redis://localhost:6379: connect ECONNREFUSED … Is the repo-brain-db container
-running?` — so a dead container is unmistakable rather than a bare `error:`. Start it
-and rehearse once before recording.
+running?` — so a dead container is unmistakable rather than a bare `error:`.
+
+**Second: having just started it is not enough.** Run the whole script once after
+starting the container and throw that take away. The backtest's first run costs ~16 s
+(see the timings table); every run after it costs ~1.2 s.
 
 `backtest` needs the fastify clone at `.cache/repos/fastify/fastify` and the cached
 GitHub PR responses under `.cache/`. Without the cache it calls the GitHub API.
