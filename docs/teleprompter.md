@@ -183,7 +183,7 @@ The JSON carries its own warning:
 
 *Switch to the Browser window at http://localhost:3100, graph `repo:fastify-fastify`.*
 
-*Open it in Safari or Firefox, not Chrome: Chrome forces https on localhost:3100 and shows an error page. Load it before you record.*
+*Load it before you record, logged in with the graph already selected. Any browser on this machine works.*
 
 ```cypher
 MATCH (p:Person)-[t:TOUCHED]->(f:File {module: '.github/workflows'})

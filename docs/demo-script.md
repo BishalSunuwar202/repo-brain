@@ -220,13 +220,21 @@ demo graphs, the fastify clone and the PR cache, pays the backtest's cold-start 
 fails if a second backtest run takes 3 s or more, and prints the numbers each step
 should show.
 
-**Step 8's Browser may not open in Chrome.** Found 2026-10-18: the Browser serves
-fine (`curl http://localhost:3100/` returns 200) but Chrome rendered an error page.
-The response carries `Strict-Transport-Security: max-age=63072000` on a plain-HTTP
-localhost origin, so Chrome tries `https://localhost:3100`, which speaks no TLS.
-**Open it manually before recording.** If it errors, use Firefox or Safari, or clear
-the entry at `chrome://net-internals/#hsts`. `preflight.sh` cannot catch this — it
-checks the database, not the browser.
+**Step 8's Browser must be opened from this machine.** An earlier note here blamed
+HSTS for an error page, and that was wrong: the browser being driven was running on
+a different computer, where `localhost:3100` is its own machine and nothing is
+listening. Corrected 2026-10-18 after opening the Browser successfully on this Mac.
+The `Strict-Transport-Security` header is real but caused nothing. **Open it
+manually before recording** — `preflight.sh` cannot catch a browser problem, it
+checks the database.
+
+The first screen is `/login` (host `localhost`, port `6379`, username and password
+blank — the container has no auth), then a 56-step welcome tutorial that must be
+skipped, then the graph selector, which paginates: type `fastify` to filter rather
+than hunting for `repo:fastify-fastify` in the list. Do all of that before recording;
+on camera you should only have to paste the query and press RUN. Avoid the Manage
+Graphs panel on camera: it lists every graph in the database with its node and edge
+counts.
 
 **If the Browser will not open at all, step 8 still has a terminal fallback.** The
 same query, against the same graph, without the picture:
