@@ -215,6 +215,11 @@ reviews on a knowledge graph.
 
 ## If a step fails on the day
 
+**Before the first take, run `scripts/preflight.sh`.** It checks the container, both
+demo graphs, the fastify clone and the PR cache, pays the backtest's cold-start cost,
+fails if a second backtest run takes 3 s or more, and prints the numbers each step
+should show.
+
 **First: is the container up?** Every step needs `repo-brain-db`; with it stopped,
 each command exits 1. The CLI names it — `cannot reach FalkorDB at
 redis://localhost:6379: connect ECONNREFUSED … Is the repo-brain-db container
