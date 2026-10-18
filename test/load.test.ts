@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Graph } from "falkordb";
-import { RESULTSET_SIZE, graphName, underCap, writeBatched } from "../src/db/client.ts";
+import { RESULTSET_SIZE, connectionErrorMessage, graphName, underCap, writeBatched } from "../src/db/client.ts";
 import { buildRepoModel, type Commit } from "../src/ingest/gitlog.ts";
 import { buildLoadPlan, isMissingGraph, loadRepo } from "../src/ingest/load.ts";
 import { DDL, isAlreadyIndexed } from "../src/schema/ddl.ts";
@@ -153,6 +153,25 @@ test("fresh load: a missing graph is fine, any other delete error surfaces", asy
   await assert.rejects(loadRepo(asGraph(down), [], { fresh: true }), /ECONNREFUSED/);
   assert.equal(down.queries.length, 0, "nothing written after a failed delete");
   assert.equal(isMissingGraph(new Error("ECONNREFUSED")), false);
+});
+
+// Found on 2026-10-18 with the container stopped: every command printed "error:" and
+// nothing else. The falkordb client reports a refused connection as an AggregateError
+// whose own `message` is empty, so the CLI had nothing to print. On recording day the
+// answer is almost always "docker is not running", so say that.
+test("a refused connection names the url and the container instead of printing nothing", () => {
+  const refused = new AggregateError([new Error("connect ECONNREFUSED 127.0.0.1:6379")]);
+  assert.equal(refused.message, "", "the premise: the client's own message is empty");
+
+  const msg = connectionErrorMessage(refused, "redis://localhost:6379");
+  assert.match(msg, /redis:\/\/localhost:6379/, "must name the url it tried");
+  assert.match(msg, /repo-brain-db/, "must name the container to start");
+  assert.match(msg, /ECONNREFUSED/, "must keep the underlying reason");
+});
+
+test("a connection error that does have a message keeps it", () => {
+  assert.match(connectionErrorMessage(new Error("WRONGPASS invalid password"), "redis://x"), /WRONGPASS invalid password/);
+  assert.match(connectionErrorMessage("plain string", "redis://x"), /plain string/);
 });
 
 test("underCap: a result at FalkorDB's RESULTSET_SIZE is treated as truncated", () => {
