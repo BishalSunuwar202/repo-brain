@@ -150,6 +150,8 @@ visibility:
 - [x] MCP server — stdio JSON-RPC, four tools, no SDK dependency (`npm run mcp`)
 - [x] README with the measured number and both baselines beside it
 - [x] `docs/walkthrough.md` — the rule 12 study sheet (model, cut derivation, backtest)
-- [ ] Rule 11 AI-disclosure paragraph in `docs/submission.md` — `TODO(owner)`, a
-      factual claim about a person, so the owner writes it
+- [x] Rule 11 AI-disclosure paragraph in `docs/submission.md` — drafted 2026-10-18 at
+      the owner's request, from claims the repo and session record support. It is
+      still a statement about the owner: read it and strike anything untrue, because
+      rule 13 makes its accuracy consequential.
 - [ ] Demo video; make public; submit
