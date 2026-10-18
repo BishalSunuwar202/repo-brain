@@ -154,4 +154,17 @@ visibility:
       the owner's request, from claims the repo and session record support. It is
       still a statement about the owner: read it and strike anything untrue, because
       rule 13 makes its accuracy consequential.
-- [ ] Demo video; make public; submit
+- [x] Tracks confirmed by the owner 2026-10-18: **Company Brain** + **Agents That Act
+      on Connected Data**. Not Agent Memory and Coordination — nothing here stores
+      agent memory. Do not reopen this.
+- [x] Recording assets: `scripts/preflight.sh` (container, both graphs, caches, warms
+      the backtest), `docs/teleprompter.md` (the words to say), `docs/demo-script.md`
+      (timings, what to notice, fallbacks)
+- [ ] **Demo video — the owner records it.** No video tooling on this machine (no
+      ffmpeg/asciinema/agg/ImageMagick/Pillow), and the owner chose to screen-record
+      with narration rather than have one rendered. Run `scripts/preflight.sh` first,
+      and open `localhost:3100` by hand — Chrome may refuse it (see demo-script.md).
+- [ ] **Merge PR #8 first.** The recording materials (`docs/teleprompter.md`,
+      `scripts/preflight.sh`, the demo fallbacks, the confirmed tracks) sit on
+      `feat/risk-calibration`, not on `main` — and `main` is what going public shows.
+- [ ] Make public; submit (window closes Oct 18 2026 11:59 PM IST)
