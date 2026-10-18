@@ -1,18 +1,5 @@
 # Repo Brain — FalkorDB Graph Hacks submission
 
-<!--
-OPEN BEFORE SUBMITTING (delete this block once settled):
-- Tracks: the rules page (wemakedevs.org/hackathons/falkordb/rules, read 2026-10-17)
-  names "Agents That Act on Connected Data", "Agent Memory and Coordination" and
-  "Company Brain", and allows entering any or all (spec §10, corrected). The choice
-  below is a recommendation for the owner to confirm.
-- The AI disclosure (rule 11) is DRAFTED, at the owner's request, from claims the
-  repository and the session record support. It is still a statement about the
-  owner's own work and rule 13 makes its accuracy matter, so read it and strike
-  anything that is not true before submitting.
-- Window closes Oct 18 2026, 11:59 PM IST (rule 7).
--->
-
 ## What it is
 
 Repo Brain reads a repository's git history into a FalkorDB graph of who knows which
@@ -23,7 +10,8 @@ expertise floor.
 
 ## Tracks
 
-<!-- Owner to confirm. -->
+Entering two of the three. The rules page
+(wemakedevs.org/hackathons/falkordb/rules, read 2026-10-17) allows any or all.
 
 - **Company Brain.** The graph is an organisation's map of who knows what in its
   code: degree-of-authorship on every person→file edge, co-change between files,
@@ -274,11 +262,6 @@ Setup and every command are in the [README](../README.md#run-it). For the MCP
 server, run `npm run mcp` (JSON-RPC 2.0 over stdio).
 
 ## AI assistance (rule 11)
-
-<!-- DRAFTED BY THE ASSISTANT AT THE OWNER'S REQUEST, 2026-10-18. Every claim below
-     is one the repository or the session record supports. Read it and strike
-     anything you do not recognise as true before submitting: rule 13 makes its
-     accuracy consequential, and you are the one signing it. -->
 
 **This project was built with heavy AI assistance, and the code was written by an AI
 assistant.** Claude Code (Claude Opus 5) wrote the implementation, the tests, the
